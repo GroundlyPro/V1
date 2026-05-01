@@ -47,6 +47,66 @@ function addressText(address: {
     .join(", ");
 }
 
+function formatDate(value: string | null) {
+  if (!value) return "Not set";
+  const date = value.includes("T") ? new Date(value) : new Date(`${value}T00:00:00`);
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(date);
+}
+
+function formatTime(value: string | null) {
+  if (!value) return null;
+  return value.slice(0, 5);
+}
+
+function formatStatus(value: string) {
+  return value.replaceAll("_", " ");
+}
+
+function userName(user: { first_name: string; last_name: string } | null | undefined) {
+  if (!user) return null;
+  return `${user.first_name} ${user.last_name}`.trim();
+}
+
+function jobSchedule(
+  job: Awaited<ReturnType<typeof getClient>> extends infer T
+    ? T extends { jobs: Array<infer J> }
+      ? J
+      : never
+    : never
+) {
+  const datedVisits = job.job_visits
+    .filter((visit) => visit.scheduled_date)
+    .sort((a, b) => String(a.scheduled_date).localeCompare(String(b.scheduled_date)));
+  const nextVisit = datedVisits[0];
+  const date = nextVisit?.scheduled_date ?? job.start_date;
+  const time = formatTime(nextVisit?.start_time ?? null);
+
+  if (!date) return "Not scheduled";
+  return time ? `${formatDate(date)} at ${time}` : formatDate(date);
+}
+
+function jobAssignedNames(
+  job: Awaited<ReturnType<typeof getClient>> extends infer T
+    ? T extends { jobs: Array<infer J> }
+      ? J
+      : never
+    : never
+) {
+  const names = new Set<string>();
+  for (const visit of job.job_visits) {
+    for (const assignment of visit.visit_assignments) {
+      const name = userName(assignment.users);
+      if (name) names.add(name);
+    }
+  }
+
+  return names.size > 0 ? Array.from(names).join(", ") : "Unassigned";
+}
+
 export default async function ClientDetailPage({ params }: ClientDetailPageProps) {
   const { id } = await params;
   const supabase = await createClient();
@@ -222,11 +282,105 @@ export default async function ClientDetailPage({ params }: ClientDetailPageProps
 
         <div className="space-y-6">
           <Tabs defaultValue="jobs">
-            <TabsList>
+            <TabsList className="h-auto flex-wrap justify-start">
+              <TabsTrigger value="requests">Requests</TabsTrigger>
+              <TabsTrigger value="quotes">Quotes</TabsTrigger>
               <TabsTrigger value="jobs">Jobs</TabsTrigger>
               <TabsTrigger value="invoices">Invoices</TabsTrigger>
               <TabsTrigger value="notes">Notes</TabsTrigger>
             </TabsList>
+            <TabsContent value="requests">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Requests</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {client.requests.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No requests yet.</p>
+                  ) : (
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Request</TableHead>
+                          <TableHead>Assigned</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead>Created</TableHead>
+                          <TableHead>Converted</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {client.requests.map((request) => (
+                          <TableRow key={request.id}>
+                            <TableCell>
+                              <Link href={`/requests/${request.id}`} className="font-medium hover:text-brand">
+                                {request.service_type || "Service request"}
+                              </Link>
+                              <p className="text-xs text-muted-foreground">
+                                {[`${request.first_name} ${request.last_name}`, request.source].filter(Boolean).join(" - ")}
+                              </p>
+                            </TableCell>
+                            <TableCell>{userName(request.users) ?? "Unassigned"}</TableCell>
+                            <TableCell>
+                              <Badge variant="outline">{formatStatus(request.status)}</Badge>
+                            </TableCell>
+                            <TableCell>{formatDate(request.created_at)}</TableCell>
+                            <TableCell>
+                              {request.converted_to_job_id
+                                ? "Job"
+                                : request.converted_to_quote_id
+                                  ? "Quote"
+                                  : "--"}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  )}
+                </CardContent>
+              </Card>
+            </TabsContent>
+            <TabsContent value="quotes">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Quotes</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {client.quotes.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No quotes yet.</p>
+                  ) : (
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Quote</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead>Sent</TableHead>
+                          <TableHead>Valid Until</TableHead>
+                          <TableHead>Total</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {client.quotes.map((quote) => (
+                          <TableRow key={quote.id}>
+                            <TableCell>
+                              <Link href={`/quotes/${quote.id}`} className="font-medium hover:text-brand">
+                                {quote.title}
+                              </Link>
+                              <p className="text-xs text-muted-foreground">{quote.quote_number}</p>
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant="outline">{formatStatus(quote.status)}</Badge>
+                            </TableCell>
+                            <TableCell>{formatDate(quote.sent_at)}</TableCell>
+                            <TableCell>{formatDate(quote.valid_until)}</TableCell>
+                            <TableCell>{formatCurrency(quote.total)}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  )}
+                </CardContent>
+              </Card>
+            </TabsContent>
             <TabsContent value="jobs">
               <Card>
                 <CardHeader>
@@ -240,6 +394,8 @@ export default async function ClientDetailPage({ params }: ClientDetailPageProps
                       <TableHeader>
                         <TableRow>
                           <TableHead>Job</TableHead>
+                          <TableHead>Date</TableHead>
+                          <TableHead>Assigned</TableHead>
                           <TableHead>Status</TableHead>
                           <TableHead>Value</TableHead>
                         </TableRow>
@@ -251,9 +407,15 @@ export default async function ClientDetailPage({ params }: ClientDetailPageProps
                               <Link href={`/jobs/${job.id}`} className="font-medium hover:text-brand">
                                 {job.title}
                               </Link>
-                              <p className="text-xs text-muted-foreground">{job.job_number}</p>
+                              <p className="text-xs text-muted-foreground">
+                                {[job.job_number, job.type, job.frequency].filter(Boolean).join(" - ")}
+                              </p>
                             </TableCell>
-                            <TableCell>{job.status}</TableCell>
+                            <TableCell>{jobSchedule(job)}</TableCell>
+                            <TableCell>{jobAssignedNames(job)}</TableCell>
+                            <TableCell>
+                              <Badge variant="outline">{formatStatus(job.status)}</Badge>
+                            </TableCell>
                             <TableCell>{formatCurrency(job.total_price)}</TableCell>
                           </TableRow>
                         ))}
@@ -277,6 +439,9 @@ export default async function ClientDetailPage({ params }: ClientDetailPageProps
                         <TableRow>
                           <TableHead>Invoice</TableHead>
                           <TableHead>Status</TableHead>
+                          <TableHead>Issued</TableHead>
+                          <TableHead>Due</TableHead>
+                          <TableHead>Total</TableHead>
                           <TableHead>Balance</TableHead>
                         </TableRow>
                       </TableHeader>
@@ -290,9 +455,13 @@ export default async function ClientDetailPage({ params }: ClientDetailPageProps
                               >
                                 {invoice.invoice_number}
                               </Link>
-                              <p className="text-xs text-muted-foreground">Due {invoice.due_date}</p>
                             </TableCell>
-                            <TableCell>{invoice.status}</TableCell>
+                            <TableCell>
+                              <Badge variant="outline">{formatStatus(invoice.status)}</Badge>
+                            </TableCell>
+                            <TableCell>{formatDate(invoice.issue_date)}</TableCell>
+                            <TableCell>{formatDate(invoice.due_date)}</TableCell>
+                            <TableCell>{formatCurrency(invoice.total)}</TableCell>
                             <TableCell>{formatCurrency(invoice.balance)}</TableCell>
                           </TableRow>
                         ))}

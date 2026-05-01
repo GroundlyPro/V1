@@ -8,6 +8,7 @@ import {
   Briefcase,
   Calendar,
   ChevronDown,
+  ClipboardList,
   Clock,
   CreditCard,
   FileText,
@@ -68,6 +69,7 @@ const NAV_SECTIONS: NavSection[] = [
   {
     label: "Grow",
     items: [
+      { href: "/reports", label: "Report", icon: ClipboardList },
       { href: "/marketing", label: "Marketing", icon: Megaphone },
       { href: "/insights", label: "Insights", icon: BarChart3 },
       { href: "/expenses", label: "Expenses", icon: BadgeDollarSign },

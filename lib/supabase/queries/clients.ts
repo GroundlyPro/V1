@@ -9,8 +9,12 @@ type AddressInsert = Database["public"]["Tables"]["client_addresses"]["Insert"];
 type AddressUpdate = Database["public"]["Tables"]["client_addresses"]["Update"];
 type ContactRow = Database["public"]["Tables"]["client_contacts"]["Row"];
 type JobRow = Database["public"]["Tables"]["jobs"]["Row"];
+type JobVisitRow = Database["public"]["Tables"]["job_visits"]["Row"];
 type InvoiceRow = Database["public"]["Tables"]["invoices"]["Row"];
 type NoteRow = Database["public"]["Tables"]["notes"]["Row"];
+type QuoteRow = Database["public"]["Tables"]["quotes"]["Row"];
+type RequestRow = Database["public"]["Tables"]["requests"]["Row"];
+type UserRow = Database["public"]["Tables"]["users"]["Row"];
 
 export type ClientListItem = ClientRow & {
   client_addresses: AddressRow[];
@@ -19,8 +23,47 @@ export type ClientListItem = ClientRow & {
 export type ClientDetail = ClientRow & {
   client_addresses: AddressRow[];
   client_contacts: ContactRow[];
-  jobs: Pick<JobRow, "id" | "job_number" | "title" | "status" | "total_price" | "start_date">[];
-  invoices: Pick<InvoiceRow, "id" | "invoice_number" | "status" | "total" | "balance" | "due_date">[];
+  jobs: Array<
+    Pick<
+      JobRow,
+      | "id"
+      | "job_number"
+      | "title"
+      | "status"
+      | "total_price"
+      | "start_date"
+      | "end_date"
+      | "type"
+      | "frequency"
+    > & {
+      job_visits: Array<
+        Pick<JobVisitRow, "id" | "scheduled_date" | "start_time" | "status"> & {
+          visit_assignments: Array<{
+            id: string;
+            users: Pick<UserRow, "id" | "first_name" | "last_name"> | null;
+          }>;
+        }
+      >;
+    }
+  >;
+  invoices: Pick<InvoiceRow, "id" | "invoice_number" | "status" | "total" | "balance" | "due_date" | "issue_date">[];
+  quotes: Pick<QuoteRow, "id" | "quote_number" | "title" | "status" | "total" | "valid_until" | "sent_at" | "approved_at">[];
+  requests: Array<
+    Pick<
+      RequestRow,
+      | "id"
+      | "first_name"
+      | "last_name"
+      | "service_type"
+      | "source"
+      | "status"
+      | "created_at"
+      | "converted_to_quote_id"
+      | "converted_to_job_id"
+    > & {
+      users: Pick<UserRow, "id" | "first_name" | "last_name"> | null;
+    }
+  >;
   timeline_notes: Pick<NoteRow, "id" | "body" | "is_pinned" | "created_at">[];
 };
 
@@ -133,8 +176,41 @@ export async function getClient(id: string, businessId?: string): Promise<Client
       *,
       client_addresses(*),
       client_contacts(*),
-      jobs(id, job_number, title, status, total_price, start_date),
-      invoices(id, invoice_number, status, total, balance, due_date)
+      jobs(
+        id,
+        job_number,
+        title,
+        status,
+        total_price,
+        start_date,
+        end_date,
+        type,
+        frequency,
+        job_visits(
+          id,
+          scheduled_date,
+          start_time,
+          status,
+          visit_assignments(
+            id,
+            users(id, first_name, last_name)
+          )
+        )
+      ),
+      invoices(id, invoice_number, status, total, balance, due_date, issue_date),
+      quotes(id, quote_number, title, status, total, valid_until, sent_at, approved_at),
+      requests(
+        id,
+        first_name,
+        last_name,
+        service_type,
+        source,
+        status,
+        created_at,
+        converted_to_quote_id,
+        converted_to_job_id,
+        users!requests_assigned_to_fkey(id, first_name, last_name)
+      )
     `
     )
     .eq("id", id);
