@@ -54,7 +54,7 @@ export async function POST(request: Request) {
     await resend.emails.send({
       from: getFromAddress(),
       to: clientEmail,
-      reply_to: business?.email ?? undefined,
+      replyTo: business?.email ?? undefined,
       subject: `Invoice ${invoice.invoice_number} from ${businessName}`,
       html: invoiceEmailHtml({
         businessName,

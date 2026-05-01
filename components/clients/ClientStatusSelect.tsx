@@ -25,18 +25,17 @@ export function ClientStatusSelect({ clientId, status }: ClientStatusSelectProps
   const [value, setValue] = useState(status);
   const [isSaving, setIsSaving] = useState(false);
 
-  function handleChange(nextValue: string) {
+  function handleChange(nextValue: ClientStatusSelectProps["status"] | null) {
+    if (!nextValue) return;
     if (nextValue === value || isSaving) return;
 
     const previousValue = value;
-    const safeNextValue = nextValue as ClientStatusSelectProps["status"];
-
-    setValue(safeNextValue);
+    setValue(nextValue);
     setIsSaving(true);
 
     startTransition(async () => {
       try {
-        await updateClientStatusAction(clientId, safeNextValue);
+        await updateClientStatusAction(clientId, nextValue);
       } catch (error) {
         setValue(previousValue);
         window.alert(error instanceof Error ? error.message : "Unable to update status.");

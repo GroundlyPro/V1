@@ -19,6 +19,11 @@ type DateRange = {
   end: Date;
 };
 
+type NormalizedDateRange = {
+  start: Date;
+  end: Date;
+};
+
 export type ReportPeriod = "all" | "this_month" | "last_month" | "this_year" | "last_year" | "custom";
 
 export type SectionKey = "overview" | "revenue" | "cashflow" | "leads" | "jobs";
@@ -139,7 +144,7 @@ function validCustomDate(value: string | null | undefined) {
   return value && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : null;
 }
 
-function normalizeRange(range: DateRange, fallbackDays = 28): Required<DateRange> {
+function normalizeRange(range: DateRange, fallbackDays = 28): NormalizedDateRange {
   const start = range.start ? startOfDay(range.start) : startOfDay(addDays(range.end, -(fallbackDays - 1)));
   return { start, end: endOfDay(range.end) };
 }
@@ -427,6 +432,8 @@ export async function getReportsOverview(
     requests
       .filter((request) => inRange(request.created_at, leadsRange))
       .map((request) => {
+        if (!request.created_at) return null;
+
         const quoteDate = request.converted_to_quote_id
           ? quotes.find((quote) => quote.id === request.converted_to_quote_id)?.created_at ?? null
           : null;
