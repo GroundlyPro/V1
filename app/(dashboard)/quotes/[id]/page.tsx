@@ -99,20 +99,18 @@ export default async function QuoteDetailPage({ params }: QuoteDetailPageProps) 
     .single();
   const businessName = business?.name ?? "";
 
-  // Find associated job if quote is approved
   let associatedJobId: string | null = null;
-  if (quote.status === "approved") {
-    const { data: job } = await supabase
-      .from("jobs")
-      .select("id")
-      .eq("quote_id", id)
-      .eq("business_id", profile.business_id)
-      .maybeSingle();
-    associatedJobId = job?.id ?? null;
-  }
+  const { data: job } = await supabase
+    .from("jobs")
+    .select("id")
+    .eq("quote_id", id)
+    .eq("business_id", profile.business_id)
+    .maybeSingle();
+  associatedJobId = job?.id ?? null;
 
   const isDraft = quote.status === "draft";
   const isSent = quote.status === "sent";
+  const canConvertToJob = !associatedJobId && (quote.status === "sent" || quote.status === "approved");
 
   const sortedLineItems = [...quote.quote_line_items].sort(
     (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)
@@ -274,14 +272,16 @@ export default async function QuoteDetailPage({ params }: QuoteDetailPageProps) 
               label="Send to Client"
             />
           )}
+          {canConvertToJob && (
+            <form action={approveAction}>
+              <button className={buttonVariants()} type="submit">
+                <CheckCircle className="size-4" />
+                Convert to Job
+              </button>
+            </form>
+          )}
           {isSent && (
             <>
-              <form action={approveAction}>
-                <button className={buttonVariants()} type="submit">
-                  <CheckCircle className="size-4" />
-                  Mark Approved
-                </button>
-              </form>
               <form action={declineAction}>
                 <button
                   className={buttonVariants({ variant: "outline" })}

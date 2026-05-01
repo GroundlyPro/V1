@@ -8,6 +8,7 @@ type AddressInsert = Database["public"]["Tables"]["client_addresses"]["Insert"];
 type JobRow = Database["public"]["Tables"]["jobs"]["Row"];
 type JobInsert = Database["public"]["Tables"]["jobs"]["Insert"];
 type JobUpdate = Database["public"]["Tables"]["jobs"]["Update"];
+type QuoteRow = Database["public"]["Tables"]["quotes"]["Row"];
 type LineItemRow = Database["public"]["Tables"]["job_line_items"]["Row"];
 type LineItemInsert = Database["public"]["Tables"]["job_line_items"]["Insert"];
 type VisitRow = Database["public"]["Tables"]["job_visits"]["Row"];
@@ -26,6 +27,7 @@ export type JobListItem = JobRow & {
 export type JobDetail = JobRow & {
   clients: Pick<ClientRow, "id" | "first_name" | "last_name" | "company_name" | "phone" | "email"> | null;
   client_addresses: AddressRow | null;
+  quotes: Pick<QuoteRow, "id" | "quote_number" | "title" | "status"> | null;
   job_line_items: LineItemRow[];
   job_visits: (VisitRow & {
     visit_assignments: {
@@ -221,6 +223,7 @@ export async function getJob(id: string, businessId?: string): Promise<JobDetail
       *,
       clients(id, first_name, last_name, company_name, phone, email),
       client_addresses(*),
+      quotes(id, quote_number, title, status),
       job_line_items(*),
       job_visits(*, visit_assignments(id, users(id, first_name, last_name, role)))
     `

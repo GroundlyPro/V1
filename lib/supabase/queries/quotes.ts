@@ -8,6 +8,7 @@ type QuoteInsert = Database["public"]["Tables"]["quotes"]["Insert"];
 type QuoteUpdate = Database["public"]["Tables"]["quotes"]["Update"];
 type QuoteLineItemRow = Database["public"]["Tables"]["quote_line_items"]["Row"];
 type QuoteLineItemInsert = Database["public"]["Tables"]["quote_line_items"]["Insert"];
+type JobRow = Database["public"]["Tables"]["jobs"]["Row"];
 type JobInsert = Database["public"]["Tables"]["jobs"]["Insert"];
 type JobLineItemInsert = Database["public"]["Tables"]["job_line_items"]["Insert"];
 
@@ -36,6 +37,29 @@ export interface QuoteFilters {
   status?: "all" | QuoteStatus;
   search?: string;
 }
+
+export type QuoteReportStats = {
+  overview: {
+    draft: number;
+    sent: number;
+    changes_requested: number;
+    approved: number;
+  };
+  conversionRate: {
+    value: number;
+    delta: number;
+  };
+  sent: {
+    count: number;
+    value: number;
+    delta: number;
+  };
+  converted: {
+    count: number;
+    value: number;
+    delta: number;
+  };
+};
 
 export interface QuoteFormInput {
   client_id: string;
@@ -89,6 +113,11 @@ function toMoney(value: number | null | undefined) {
   return Number(value ?? 0);
 }
 
+function percent(numerator: number, denominator: number) {
+  if (denominator === 0) return 0;
+  return Math.round((numerator / denominator) * 100);
+}
+
 async function recalculateQuoteTotals(
   supabase: Awaited<ReturnType<typeof createSupabaseClient>>,
   quoteId: string,
@@ -139,6 +168,78 @@ export async function getQuotes(
   if (error) throw error;
 
   return (data ?? []) as QuoteListItem[];
+}
+
+export async function getQuoteReportStats(businessId: string): Promise<QuoteReportStats> {
+  const supabase = await createSupabaseClient();
+  const now = new Date();
+  const currentStart = new Date(now);
+  currentStart.setDate(currentStart.getDate() - 30);
+  const previousStart = new Date(currentStart);
+  previousStart.setDate(previousStart.getDate() - 30);
+
+  const [quotesResult, jobsResult] = await Promise.all([
+    supabase
+      .from("quotes")
+      .select("id, status, total, sent_at, approved_at, created_at")
+      .eq("business_id", businessId),
+    supabase
+      .from("jobs")
+      .select("id, quote_id, total_price, created_at")
+      .eq("business_id", businessId)
+      .not("quote_id", "is", null)
+      .gte("created_at", previousStart.toISOString()),
+  ]);
+
+  if (quotesResult.error) throw quotesResult.error;
+  if (jobsResult.error) throw jobsResult.error;
+
+  const quotes = quotesResult.data ?? [];
+  const jobs = (jobsResult.data ?? []) as Pick<JobRow, "id" | "quote_id" | "total_price" | "created_at">[];
+  const currentStartTime = currentStart.getTime();
+  const previousStartTime = previousStart.getTime();
+
+  const inCurrent = (value: string | null | undefined) => {
+    if (!value) return false;
+    const time = new Date(value).getTime();
+    return time >= currentStartTime && time <= now.getTime();
+  };
+
+  const inPrevious = (value: string | null | undefined) => {
+    if (!value) return false;
+    const time = new Date(value).getTime();
+    return time >= previousStartTime && time < currentStartTime;
+  };
+
+  const sentCurrent = quotes.filter((quote) => inCurrent(quote.sent_at));
+  const sentPrevious = quotes.filter((quote) => inPrevious(quote.sent_at));
+  const convertedCurrent = jobs.filter((job) => inCurrent(job.created_at));
+  const convertedPrevious = jobs.filter((job) => inPrevious(job.created_at));
+  const currentConversionRate = percent(convertedCurrent.length, sentCurrent.length);
+  const previousConversionRate = percent(convertedPrevious.length, sentPrevious.length);
+
+  return {
+    overview: {
+      draft: quotes.filter((quote) => quote.status === "draft").length,
+      sent: quotes.filter((quote) => quote.status === "sent").length,
+      changes_requested: quotes.filter((quote) => quote.status === "changes_requested").length,
+      approved: quotes.filter((quote) => quote.status === "approved").length,
+    },
+    conversionRate: {
+      value: currentConversionRate,
+      delta: currentConversionRate - previousConversionRate,
+    },
+    sent: {
+      count: sentCurrent.length,
+      value: sentCurrent.reduce((sum, quote) => sum + toMoney(quote.total), 0),
+      delta: sentCurrent.length - sentPrevious.length,
+    },
+    converted: {
+      count: convertedCurrent.length,
+      value: convertedCurrent.reduce((sum, job) => sum + toMoney(job.total_price), 0),
+      delta: convertedCurrent.length - convertedPrevious.length,
+    },
+  };
 }
 
 export async function getQuote(id: string, businessId?: string): Promise<QuoteDetail | null> {
@@ -356,6 +457,16 @@ export async function removeQuoteLineItem(lineItemId: string) {
 export async function convertQuoteToJob(quoteId: string) {
   const { supabase, profile } = await getMyProfile();
   const businessId = profile.business_id;
+
+  const { data: existingJob, error: existingJobError } = await supabase
+    .from("jobs")
+    .select("*")
+    .eq("quote_id", quoteId)
+    .eq("business_id", businessId)
+    .maybeSingle();
+
+  if (existingJobError) throw existingJobError;
+  if (existingJob) return existingJob;
 
   const { data: quote, error: quoteError } = await supabase
     .from("quotes")

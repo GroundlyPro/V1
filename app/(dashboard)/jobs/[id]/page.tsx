@@ -420,6 +420,14 @@ export default async function JobDetailPage({ params }: JobDetailPageProps) {
                   </p>
                 </div>
               </div>
+              {job.quotes && (
+                <div className="border-t pt-3">
+                  <p className="text-[#9baab8]">Converted from quote</p>
+                  <Link href={`/quotes/${job.quotes.id}`} className="font-medium text-[#1a2d3d] hover:text-[#007bb8]">
+                    {job.quotes.quote_number} - {job.quotes.title}
+                  </Link>
+                </div>
+              )}
             </CardContent>
           </Card>
 

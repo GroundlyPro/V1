@@ -240,6 +240,10 @@ V1-master/
 - Dashboard home: Appointments now default to `This month`, and appointment-side money totals de-duplicate repeated visits from the same job so card totals stay accurate
 - Jobs: booking flow now renders explicit labels for UUID-backed selects, includes provider wage percentage in the booking payment summary, and job detail can queue `Send to Client` / `Send to Cleaner` confirmation structure plus 24h/1h reminders
 - Quotes: fixed Vercel type-check failure in `QuoteForm.tsx` by aligning `react-hook-form` with Zod's coerced number input/output types for pricing fields
+- Reports: added Grow > Report before Marketing in `Sidebar.tsx`; new `/reports` page uses `lib/supabase/queries/reports.ts` for Supabase-backed overview metrics, revenue, cashflow, lead conversion, and job performance. Verified with `npm run lint` (existing `JobForm.tsx` warning only), `npm run build`, and `http://localhost:3000/reports` returning 200.
+- Clients: client detail tabs now include Requests, Quotes, Jobs, Invoices, and Notes; Jobs show scheduled date/time, assigned team members, type/frequency, status, and value.
+- Quotes: `/quotes` now shows Supabase-backed overview/report cards for status counts, 30-day conversion rate, sent quote count/value, and converted quote-job count/value; no hard-coded card totals.
+- Quotes/Jobs: quote detail now uses a `Convert to Job` action that reuses an existing linked job instead of duplicating it; job detail shows the source quote link when `jobs.quote_id` is present.
 
 **Still open / to do next:**
 - `lib/supabase/types.ts` needs regeneration after any new migration: run `npx supabase gen types typescript --project-id pnnczpsvvuwgzpkqfizv > lib/supabase/types.ts` (requires `supabase login` first)

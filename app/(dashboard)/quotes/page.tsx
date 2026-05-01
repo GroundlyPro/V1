@@ -1,8 +1,14 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Plus, Search } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpRight, CircleHelp, Plus, Search } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
-import { getQuotes, type QuoteFilters, type QuoteListItem } from "@/lib/supabase/queries/quotes";
+import {
+  getQuoteReportStats,
+  getQuotes,
+  type QuoteFilters,
+  type QuoteListItem,
+  type QuoteReportStats,
+} from "@/lib/supabase/queries/quotes";
 import { buttonVariants } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -40,6 +46,14 @@ function formatCurrency(value: number | null) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(value ?? 0);
 }
 
+function formatCompactCurrency(value: number) {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  }).format(value);
+}
+
 function formatDate(value: string | null) {
   if (!value) return "—";
   return new Intl.DateTimeFormat("en-US", {
@@ -57,6 +71,126 @@ const statusClasses: Record<string, string> = {
   expired: "bg-orange-100 text-orange-700",
   changes_requested: "bg-yellow-100 text-yellow-700",
 };
+
+function DeltaPill({ value, suffix = "" }: { value: number; suffix?: string }) {
+  const isPositive = value > 0;
+  const isNegative = value < 0;
+  const Icon = isPositive ? ArrowUp : ArrowDown;
+  const label = `${Math.abs(value)}${suffix}`;
+
+  return (
+    <span
+      className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium ${
+        isPositive
+          ? "bg-green-50 text-green-700"
+          : isNegative
+            ? "bg-red-50 text-red-700"
+            : "bg-gray-100 text-gray-600"
+      }`}
+    >
+      {value === 0 ? null : <Icon className="size-3" />}
+      {label}
+    </span>
+  );
+}
+
+function QuoteReportCards({ report }: { report: QuoteReportStats }) {
+  const overviewItems = [
+    { label: "Draft", value: report.overview.draft, color: "bg-[#486778]" },
+    { label: "Awaiting response", value: report.overview.sent, color: "bg-[#d6b420]" },
+    { label: "Changes requested", value: report.overview.changes_requested, color: "bg-[#d34a35]" },
+    { label: "Approved", value: report.overview.approved, color: "bg-[#3f8f2f]" },
+  ];
+
+  return (
+    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+      <Card className="rounded-lg border-[#d6e0e7] shadow-none">
+        <CardHeader className="pb-0">
+          <CardTitle className="text-lg font-bold text-[#063044]">Overview</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-1.5">
+            {overviewItems.map((item) => (
+              <Link
+                key={item.label}
+                href={`/quotes?status=${item.label === "Awaiting response" ? "sent" : item.label.toLowerCase().replaceAll(" ", "_")}`}
+                className="flex items-center gap-2 text-sm text-[#12384a] hover:text-brand"
+              >
+                <span className={`size-2.5 rounded-full ${item.color}`} />
+                <span>
+                  {item.label} ({item.value})
+                </span>
+              </Link>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="rounded-lg border-[#d6e0e7] shadow-none">
+        <CardHeader className="pb-0">
+          <div className="flex items-start justify-between gap-3">
+            <CardTitle className="max-w-36 text-lg font-bold leading-tight text-[#063044]">
+              Conversion rate
+            </CardTitle>
+            <div className="flex items-center gap-3 text-[#12384a]">
+              <CircleHelp className="size-4" aria-label="Converted quote jobs divided by sent quotes" />
+              <Link href="/reports" aria-label="Open reports">
+                <ArrowUpRight className="size-4" />
+              </Link>
+            </div>
+          </div>
+          <CardDescription className="text-sm text-[#365c6e]">Past 30 days</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center gap-3">
+            <span className="text-3xl font-bold tabular-nums text-[#063044]">
+              {report.conversionRate.value}%
+            </span>
+            <DeltaPill value={report.conversionRate.delta} suffix="%" />
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="rounded-lg border-[#d6e0e7] shadow-none">
+        <CardHeader className="pb-0">
+          <div className="flex items-start justify-between gap-3">
+            <CardTitle className="text-lg font-bold text-[#063044]">Sent</CardTitle>
+            <Link href="/quotes?status=sent" aria-label="Open sent quotes" className="text-[#12384a]">
+              <ArrowUpRight className="size-4" />
+            </Link>
+          </div>
+          <CardDescription className="text-sm text-[#365c6e]">Past 30 days</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center gap-3">
+            <span className="text-3xl font-bold tabular-nums text-[#063044]">{report.sent.count}</span>
+            <DeltaPill value={report.sent.delta} />
+          </div>
+          <p className="mt-1 text-sm text-[#365c6e]">{formatCompactCurrency(report.sent.value)}</p>
+        </CardContent>
+      </Card>
+
+      <Card className="rounded-lg border-[#d6e0e7] shadow-none">
+        <CardHeader className="pb-0">
+          <div className="flex items-start justify-between gap-3">
+            <CardTitle className="text-lg font-bold text-[#063044]">Converted</CardTitle>
+            <Link href="/jobs" aria-label="Open converted jobs" className="text-[#12384a]">
+              <ArrowUpRight className="size-4" />
+            </Link>
+          </div>
+          <CardDescription className="text-sm text-[#365c6e]">Past 30 days</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center gap-3">
+            <span className="text-3xl font-bold tabular-nums text-[#063044]">{report.converted.count}</span>
+            <DeltaPill value={report.converted.delta} />
+          </div>
+          <p className="mt-1 text-sm text-[#365c6e]">{formatCompactCurrency(report.converted.value)}</p>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
 
 export default async function QuotesPage({ searchParams }: QuotesPageProps) {
   const supabase = await createClient();
@@ -76,10 +210,13 @@ export default async function QuotesPage({ searchParams }: QuotesPageProps) {
 
   const params = await searchParams;
   const status = params.status ?? "all";
-  const quotes = await getQuotes(profile.business_id, {
-    search: params.q,
-    status,
-  });
+  const [quotes, report] = await Promise.all([
+    getQuotes(profile.business_id, {
+      search: params.q,
+      status,
+    }),
+    getQuoteReportStats(profile.business_id),
+  ]);
 
   return (
     <div className="max-w-6xl space-y-6">
@@ -95,6 +232,8 @@ export default async function QuotesPage({ searchParams }: QuotesPageProps) {
           New Quote
         </Link>
       </div>
+
+      <QuoteReportCards report={report} />
 
       <Card>
         <CardHeader>
@@ -123,6 +262,7 @@ export default async function QuotesPage({ searchParams }: QuotesPageProps) {
                 <SelectItem value="draft">Draft</SelectItem>
                 <SelectItem value="sent">Sent</SelectItem>
                 <SelectItem value="approved">Approved</SelectItem>
+                <SelectItem value="changes_requested">Changes requested</SelectItem>
                 <SelectItem value="declined">Declined</SelectItem>
                 <SelectItem value="expired">Expired</SelectItem>
               </SelectContent>
