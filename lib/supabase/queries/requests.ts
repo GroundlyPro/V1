@@ -2,22 +2,28 @@ import { createClient as createSupabaseClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { Database } from "@/lib/supabase/types";
 
+type ClientRow = Database["public"]["Tables"]["clients"]["Row"];
 type ClientInsert = Database["public"]["Tables"]["clients"]["Insert"];
+type AddressRow = Database["public"]["Tables"]["client_addresses"]["Row"];
 type AddressInsert = Database["public"]["Tables"]["client_addresses"]["Insert"];
 type QuoteInsert = Database["public"]["Tables"]["quotes"]["Insert"];
 type QuoteLineItemInsert = Database["public"]["Tables"]["quote_line_items"]["Insert"];
 type RequestRow = Database["public"]["Tables"]["requests"]["Row"];
 type RequestInsert = Database["public"]["Tables"]["requests"]["Insert"];
 type RequestUpdate = Database["public"]["Tables"]["requests"]["Update"];
+type ReminderInsert = Database["public"]["Tables"]["reminders"]["Insert"];
 type BusinessRow = Database["public"]["Tables"]["businesses"]["Row"];
+type UserRow = Database["public"]["Tables"]["users"]["Row"];
 
 export type RequestStatus = "new" | "in_review" | "converted" | "declined";
 export type RequestFilter = "all" | RequestStatus;
+export type RequestDateFilter = "all" | "today" | "this_week" | "this_month" | "custom";
 
 export type RequestListItem = Pick<
   RequestRow,
   | "id"
   | "created_at"
+  | "address"
   | "first_name"
   | "last_name"
   | "email"
@@ -25,10 +31,13 @@ export type RequestListItem = Pick<
   | "service_type"
   | "status"
   | "source"
->;
+> & {
+  users: Pick<UserRow, "id" | "first_name" | "last_name"> | null;
+};
 
 export type RequestDetail = RequestRow & {
   converted_quote: { id: string; quote_number: string | null; title: string } | null;
+  users: Pick<UserRow, "id" | "first_name" | "last_name" | "email"> | null;
 };
 
 export interface PublicRequestInput {
@@ -43,10 +52,67 @@ export interface PublicRequestInput {
   preferred_date?: string;
 }
 
-export type ManualRequestInput = Omit<PublicRequestInput, "business_id">;
+export interface ManualRequestInput {
+  client_id: string;
+  email?: string;
+  phone?: string;
+  address?: string;
+  service_type?: string;
+  requested_on?: string;
+  reminder_at?: string;
+  message?: string;
+  assigned_to?: string;
+  image_url?: string;
+}
+
+export type RequestClientOption = Pick<
+  ClientRow,
+  "id" | "first_name" | "last_name" | "company_name" | "email" | "phone"
+> & {
+  client_addresses: Pick<
+    AddressRow,
+    "id" | "label" | "street1" | "street2" | "city" | "state" | "zip" | "is_primary"
+  >[];
+};
+
+export type RequestTeamMemberOption = Pick<
+  UserRow,
+  "id" | "first_name" | "last_name" | "role" | "email"
+>;
+
+const UNASSIGNED = "unassigned";
 
 export interface RequestFilters {
+  search?: string;
   status?: RequestFilter;
+  assignedTo?: string;
+  createdRange?: RequestDateFilter;
+  createdFrom?: string;
+  createdTo?: string;
+}
+
+function startOfDay(value: Date) {
+  const next = new Date(value);
+  next.setHours(0, 0, 0, 0);
+  return next;
+}
+
+function addDays(value: Date, days: number) {
+  const next = new Date(value);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function startOfWeek(value: Date) {
+  const next = startOfDay(value);
+  const day = next.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  next.setDate(next.getDate() + diff);
+  return next;
+}
+
+function startOfMonth(value: Date) {
+  return new Date(value.getFullYear(), value.getMonth(), 1);
 }
 
 async function getMyProfile() {
@@ -87,6 +153,14 @@ function messageWithPreferredDate(message?: string, preferredDate?: string) {
   return [body, `Preferred date: ${preferredDate}`].filter(Boolean).join("\n\n");
 }
 
+function toIsoDateTime(value?: string | null) {
+  const normalized = clean(value);
+  if (!normalized) return null;
+  const parsed = new Date(normalized);
+  if (Number.isNaN(parsed.getTime())) throw new Error("Invalid reminder date.");
+  return parsed.toISOString();
+}
+
 export async function getRequests(
   businessId: string,
   filters: RequestFilters = {}
@@ -94,12 +168,77 @@ export async function getRequests(
   const supabase = await createSupabaseClient();
   let query = supabase
     .from("requests")
-    .select("id, created_at, first_name, last_name, email, phone, service_type, status, source")
+    .select(`
+      id,
+      created_at,
+      address,
+      first_name,
+      last_name,
+      email,
+      phone,
+      service_type,
+      status,
+      source,
+      users:users!requests_assigned_to_fkey(id, first_name, last_name)
+    `)
     .eq("business_id", businessId)
     .order("created_at", { ascending: false });
 
   if (filters.status && filters.status !== "all") {
     query = query.eq("status", filters.status);
+  }
+
+  if (filters.search?.trim()) {
+    const term = filters.search.trim();
+    query = query.or(
+      [
+        `first_name.ilike.%${term}%`,
+        `last_name.ilike.%${term}%`,
+        `email.ilike.%${term}%`,
+        `phone.ilike.%${term}%`,
+        `address.ilike.%${term}%`,
+        `service_type.ilike.%${term}%`,
+      ].join(",")
+    );
+  }
+
+  if (filters.assignedTo && filters.assignedTo !== "all") {
+    if (filters.assignedTo === UNASSIGNED) {
+      query = query.is("assigned_to", null);
+    } else {
+      query = query.eq("assigned_to", filters.assignedTo);
+    }
+  }
+
+  const now = new Date();
+  if (filters.createdRange === "today") {
+    query = query
+      .gte("created_at", startOfDay(now).toISOString())
+      .lt("created_at", addDays(startOfDay(now), 1).toISOString());
+  }
+
+  if (filters.createdRange === "this_week") {
+    const weekStart = startOfWeek(now);
+    query = query
+      .gte("created_at", weekStart.toISOString())
+      .lt("created_at", addDays(weekStart, 7).toISOString());
+  }
+
+  if (filters.createdRange === "this_month") {
+    const monthStart = startOfMonth(now);
+    const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    query = query
+      .gte("created_at", monthStart.toISOString())
+      .lt("created_at", nextMonthStart.toISOString());
+  }
+
+  if (filters.createdRange === "custom") {
+    if (filters.createdFrom) {
+      query = query.gte("created_at", startOfDay(new Date(filters.createdFrom)).toISOString());
+    }
+    if (filters.createdTo) {
+      query = query.lt("created_at", addDays(startOfDay(new Date(filters.createdTo)), 1).toISOString());
+    }
   }
 
   const { data, error } = await query;
@@ -112,7 +251,11 @@ export async function getRequest(id: string, businessId: string): Promise<Reques
   const supabase = await createSupabaseClient();
   const { data, error } = await supabase
     .from("requests")
-    .select("*, converted_quote:quotes!requests_converted_to_quote_id_fkey(id, quote_number, title)")
+    .select(`
+      *,
+      converted_quote:quotes!requests_converted_to_quote_id_fkey(id, quote_number, title),
+      users!requests_assigned_to_fkey(id, first_name, last_name, email)
+    `)
     .eq("id", id)
     .eq("business_id", businessId)
     .maybeSingle();
@@ -132,6 +275,47 @@ export async function updateRequestStatus(id: string, status: RequestStatus) {
     .eq("business_id", profile.business_id);
 
   if (error) throw error;
+}
+
+export async function updateRequestAssignee(id: string, assignedTo?: string | null) {
+  const { supabase, profile } = await getMyProfile();
+  const update: RequestUpdate = {
+    assigned_to: assignedTo === UNASSIGNED ? null : clean(assignedTo),
+  };
+
+  const { error } = await supabase
+    .from("requests")
+    .update(update)
+    .eq("id", id)
+    .eq("business_id", profile.business_id);
+
+  if (error) throw error;
+}
+
+export async function getRequestFormOptions(businessId: string) {
+  const supabase = await createSupabaseClient();
+
+  const [clientsResult, membersResult] = await Promise.all([
+    supabase
+      .from("clients")
+      .select("id, first_name, last_name, company_name, email, phone, client_addresses(*)")
+      .eq("business_id", businessId)
+      .order("last_name", { ascending: true }),
+    supabase
+      .from("users")
+      .select("id, first_name, last_name, role, email")
+      .eq("business_id", businessId)
+      .eq("is_active", true)
+      .order("first_name", { ascending: true }),
+  ]);
+
+  if (clientsResult.error) throw clientsResult.error;
+  if (membersResult.error) throw membersResult.error;
+
+  return {
+    clients: (clientsResult.data ?? []) as RequestClientOption[],
+    teamMembers: (membersResult.data ?? []) as RequestTeamMemberOption[],
+  };
 }
 
 export async function convertRequestToQuote(id: string) {
@@ -279,21 +463,72 @@ export async function submitPublicRequest(input: PublicRequestInput) {
 
 export async function createManualRequest(input: ManualRequestInput) {
   const { supabase, profile } = await getMyProfile();
+  const businessId = profile.business_id;
+  const { data: client, error: clientError } = await supabase
+    .from("clients")
+    .select(`
+      id,
+      first_name,
+      last_name,
+      email,
+      phone,
+      client_addresses(id, label, street1, street2, city, state, zip, is_primary)
+    `)
+    .eq("id", input.client_id)
+    .eq("business_id", businessId)
+    .single();
+
+  if (clientError) throw clientError;
+
+  const primaryAddress =
+    client.client_addresses.find((address) => address.is_primary) ?? client.client_addresses[0];
+  const addressFromClient = primaryAddress
+    ? [
+        primaryAddress.label || undefined,
+        primaryAddress.street1,
+        primaryAddress.street2,
+        primaryAddress.city,
+        primaryAddress.state,
+        primaryAddress.zip,
+      ]
+        .filter(Boolean)
+        .join(", ")
+    : null;
+
   const payload: RequestInsert = {
-    business_id: profile.business_id,
-    first_name: input.first_name.trim(),
-    last_name: input.last_name.trim(),
-    email: clean(input.email),
-    phone: clean(input.phone),
-    address: clean(input.address),
+    business_id: businessId,
+    client_id: client.id,
+    first_name: client.first_name.trim(),
+    last_name: client.last_name.trim(),
+    email: clean(input.email) ?? clean(client.email),
+    phone: clean(input.phone) ?? clean(client.phone),
+    address: clean(input.address) ?? addressFromClient,
     service_type: clean(input.service_type),
-    message: messageWithPreferredDate(input.message, input.preferred_date),
+    message: clean(input.message),
+    assigned_to: input.assigned_to === UNASSIGNED ? null : clean(input.assigned_to),
+    image_url: clean(input.image_url),
+    reminder_at: toIsoDateTime(input.reminder_at),
+    requested_on: clean(input.requested_on),
     source: "manual",
     status: "new",
   };
 
   const { data, error } = await supabase.from("requests").insert(payload).select("id").single();
   if (error) throw error;
+
+  if (payload.reminder_at) {
+    const reminderPayload: ReminderInsert = {
+      business_id: businessId,
+      entity_id: data.id,
+      entity_type: "request",
+      channel: "dashboard",
+      remind_at: payload.reminder_at,
+      message: `Follow up on request from ${client.first_name} ${client.last_name}${input.service_type ? ` for ${input.service_type}` : ""}.`,
+    };
+
+    const { error: reminderError } = await supabase.from("reminders").insert(reminderPayload);
+    if (reminderError) throw reminderError;
+  }
 
   return data;
 }

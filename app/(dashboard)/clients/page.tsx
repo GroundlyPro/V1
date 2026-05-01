@@ -1,19 +1,12 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Plus, Search } from "lucide-react";
+import { Download, Plus, Search, Upload } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getClients, type ClientFilters } from "@/lib/supabase/queries/clients";
 import { ClientCard } from "@/components/clients/ClientCard";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -47,6 +40,9 @@ export default async function ClientsPage({ searchParams }: ClientsPageProps) {
 
   const params = await searchParams;
   const status = params.status ?? "all";
+  const exportParams = new URLSearchParams();
+  if (params.q) exportParams.set("q", params.q);
+  if (status && status !== "all") exportParams.set("status", status);
   const clients = await getClients(profile.business_id, {
     search: params.q,
     status,
@@ -61,10 +57,23 @@ export default async function ClientsPage({ searchParams }: ClientsPageProps) {
             Manage customer records, addresses, balances, and service history.
           </p>
         </div>
-        <Link href="/clients/new" className={buttonVariants()}>
-          <Plus className="size-4" />
-          New Client
-        </Link>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <Link href="/clients/import" className={buttonVariants({ variant: "outline" })}>
+            <Upload className="size-4" />
+            Import
+          </Link>
+          <Link
+            href={`/api/clients/export${exportParams.size > 0 ? `?${exportParams.toString()}` : ""}`}
+            className={buttonVariants({ variant: "outline" })}
+          >
+            <Download className="size-4" />
+            Export
+          </Link>
+          <Link href="/clients/new" className={buttonVariants()}>
+            <Plus className="size-4" />
+            New Client
+          </Link>
+        </div>
       </div>
 
       <Card>
@@ -85,17 +94,16 @@ export default async function ClientsPage({ searchParams }: ClientsPageProps) {
                 className="pl-8"
               />
             </div>
-            <Select name="status" defaultValue={status}>
-              <SelectTrigger className="w-full sm:w-44">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All statuses</SelectItem>
-                <SelectItem value="active">Active</SelectItem>
-                <SelectItem value="lead">Lead</SelectItem>
-                <SelectItem value="inactive">Inactive</SelectItem>
-              </SelectContent>
-            </Select>
+            <select
+              name="status"
+              defaultValue={status}
+              className="h-8 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 sm:w-44"
+            >
+              <option value="all">All statuses</option>
+              <option value="active">Active</option>
+              <option value="lead">Lead</option>
+              <option value="inactive">Inactive</option>
+            </select>
             <button className={buttonVariants({ variant: "outline" })} type="submit">
               Filter
             </button>
@@ -109,14 +117,17 @@ export default async function ClientsPage({ searchParams }: ClientsPageProps) {
               </p>
             </div>
           ) : (
-            <Table>
+            <Table className="table-fixed">
               <TableHeader>
                 <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Contact</TableHead>
-                  <TableHead>Primary Address</TableHead>
-                  <TableHead>Balance</TableHead>
-                  <TableHead>Status</TableHead>
+                  <TableHead className="w-[20%]">Name</TableHead>
+                  <TableHead className="w-[24%]">Contact</TableHead>
+                  <TableHead className="w-[28%]">Primary Address</TableHead>
+                  <TableHead className="w-[12%]">Balance</TableHead>
+                  <TableHead className="w-[12%]">Status</TableHead>
+                  <TableHead className="w-[4%]">
+                    <span className="sr-only">Actions</span>
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>

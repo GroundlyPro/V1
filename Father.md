@@ -1,4 +1,4 @@
-# Master.md — Groundly PRO Build Bible
+# Father.md — Groundly PRO Build Bible
 
 > **READ THIS FILE AT THE START OF EVERY SESSION — before touching any code.**
 > **UPDATE the "Known Issues / Next Tasks" section after every session.**
@@ -8,7 +8,7 @@
 ## How to Start Every Session (minimise tokens)
 
 ```
-Read Master.md.
+Read Father.md.
 Task: [one sentence — what to fix or build]
 File: [path/to/exact/file.tsx if known]
 Do not touch anything outside that file.
@@ -63,7 +63,7 @@ Do not touch anything outside that file.
 
 ```
 V1-master/
-├── Master.md                            ← Read every session
+├── Father.md                            ← Read every session
 ├── proxy.ts                             ← Route protection (Next.js 16)
 ├── .env.local                           ← All secrets — never commit
 │
@@ -225,6 +225,11 @@ V1-master/
 
 > Update this section at the end of every session. This is what the next session reads first.
 
+**Fixed this session (2026-05-02):**
+- Settings → Alerts tab: added **Email** section at top with reply-to address input (saves to `businesses.email`) and **Alerts** sub-header above notification toggles (`components/settings/NotificationsTab.tsx`)
+- `settings/page.tsx`: `NotificationValues` now includes `email`; `updateNotifications` server action explicitly saves it to `businesses` table alongside the toggle fields
+- `app/api/invoices/send/route.ts` + `app/api/quotes/send/route.ts`: both now fetch `email` alongside `name` from the business record and pass it as `reply_to` on every Resend `emails.send()` call — client replies land in the business's inbox instead of noreply
+
 **Fixed this session (2026-05-01):**
 - Schedule: added prev/next month buttons (`ChevronsLeft/Right`) + date jump input to `WeekCalendar.tsx`
 - Requests: added "New Request" button on `requests/page.tsx` → `/requests/new`
@@ -244,6 +249,9 @@ V1-master/
 - Clients: client detail tabs now include Requests, Quotes, Jobs, Invoices, and Notes; Jobs show scheduled date/time, assigned team members, type/frequency, status, and value.
 - Quotes: `/quotes` now shows Supabase-backed overview/report cards for status counts, 30-day conversion rate, sent quote count/value, and converted quote-job count/value; no hard-coded card totals.
 - Quotes/Jobs: quote detail now uses a `Convert to Job` action that reuses an existing linked job instead of duplicating it; job detail shows the source quote link when `jobs.quote_id` is present.
+- Jobs: job board now shows service address and assigned team members, supports inline status changes from `/jobs`, and job detail `Job Info` also shows the assigned team.
+- Quotes: quote table now shows service address and created date, and status can be changed inline with a colored dropdown from `/quotes`.
+- Quotes: `/quotes` filters are URL-synced so changing one keeps the others, and custom date filtering now supports a from/to range instead of a single date.
 
 **Still open / to do next:**
 - `lib/supabase/types.ts` needs regeneration after any new migration: run `npx supabase gen types typescript --project-id pnnczpsvvuwgzpkqfizv > lib/supabase/types.ts` (requires `supabase login` first)

@@ -123,6 +123,7 @@ export default async function QuoteDetailPage({ params }: QuoteDetailPageProps) 
     client_id: quote.client_id,
     address_id: quote.address_id ?? "",
     title: quote.title,
+    status: quote.status as QuoteFormValues["status"],
     frequency: (quote.frequency as QuoteFormValues["frequency"]) ?? "one_time",
     valid_until: quote.valid_until ?? "",
     message_to_client: quote.message_to_client ?? "",

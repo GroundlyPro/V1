@@ -24,6 +24,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import type { QuoteStatus } from "@/lib/supabase/queries/quotes";
 
 type ClientOption = {
   id: string;
@@ -52,6 +53,7 @@ export const quoteFormSchema = z.object({
   client_id: z.string().min(1, "Client is required"),
   address_id: z.string().optional(),
   title: z.string().min(1, "Title is required"),
+  status: z.enum(["draft", "sent", "approved", "changes_requested", "declined", "expired"]),
   frequency: z.enum(["none", "one_time", "weekly", "biweekly", "monthly"]).optional(),
   valid_until: z.string().optional(),
   message_to_client: z.string().optional(),
@@ -75,6 +77,7 @@ interface QuoteFormProps {
   defaultValues?: QuoteFormValues;
   submitLabel?: string;
   showPricingFields?: boolean;
+  createdAtLabel?: string;
   action: (values: QuoteFormValues) => Promise<{ error?: string } | void>;
 }
 
@@ -82,6 +85,7 @@ const emptyValues: QuoteFormInputValues = {
   client_id: "",
   address_id: "",
   title: "",
+  status: "draft",
   frequency: "one_time",
   valid_until: "",
   message_to_client: "",
@@ -106,12 +110,22 @@ function addressLabel(address: ClientOption["client_addresses"][number]) {
   return `${label}: ${address.street1}, ${address.city}, ${address.state}`;
 }
 
+const quoteStatusLabels: Record<QuoteStatus, string> = {
+  draft: "Draft",
+  sent: "Sent",
+  approved: "Approved",
+  changes_requested: "Changes requested",
+  declined: "Declined",
+  expired: "Expired",
+};
+
 export function QuoteForm({
   clients,
   teamMembers = [],
   defaultValues,
   submitLabel = "Save quote",
   showPricingFields = false,
+  createdAtLabel,
   action,
 }: QuoteFormProps) {
   const router = useRouter();
@@ -245,7 +259,33 @@ export function QuoteForm({
           )}
         />
 
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="grid gap-4 md:grid-cols-4">
+          <FormField
+            control={form.control}
+            name="status"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Status</FormLabel>
+                <Select value={field.value} onValueChange={field.onChange}>
+                  <FormControl>
+                    <SelectTrigger className="w-full">
+                      <span>{quoteStatusLabels[field.value as QuoteStatus]}</span>
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    <SelectItem value="draft">Draft</SelectItem>
+                    <SelectItem value="sent">Sent</SelectItem>
+                    <SelectItem value="approved">Approved</SelectItem>
+                    <SelectItem value="changes_requested">Changes requested</SelectItem>
+                    <SelectItem value="declined">Declined</SelectItem>
+                    <SelectItem value="expired">Expired</SelectItem>
+                  </SelectContent>
+                </Select>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
           <FormField
             control={form.control}
             name="frequency"
@@ -270,6 +310,13 @@ export function QuoteForm({
               </FormItem>
             )}
           />
+
+          <FormItem>
+            <FormLabel>Created at</FormLabel>
+            <FormControl>
+              <Input value={createdAtLabel ?? ""} readOnly disabled />
+            </FormControl>
+          </FormItem>
 
           <FormField
             control={form.control}

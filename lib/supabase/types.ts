@@ -1402,9 +1402,12 @@ export type Database = {
           email: string | null
           first_name: string
           id: string
+          image_url: string | null
           last_name: string
           message: string | null
           phone: string | null
+          reminder_at: string | null
+          requested_on: string | null
           service_type: string | null
           source: string
           status: string
@@ -1421,9 +1424,12 @@ export type Database = {
           email?: string | null
           first_name: string
           id?: string
+          image_url?: string | null
           last_name: string
           message?: string | null
           phone?: string | null
+          reminder_at?: string | null
+          requested_on?: string | null
           service_type?: string | null
           source?: string
           status?: string
@@ -1440,9 +1446,12 @@ export type Database = {
           email?: string | null
           first_name?: string
           id?: string
+          image_url?: string | null
           last_name?: string
           message?: string | null
           phone?: string | null
+          reminder_at?: string | null
+          requested_on?: string | null
           service_type?: string | null
           source?: string
           status?: string

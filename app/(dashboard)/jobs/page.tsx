@@ -1,19 +1,21 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Plus, Search } from "lucide-react";
+import { Plus } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
-import { getJobs, type JobFilters, type JobListItem } from "@/lib/supabase/queries/jobs";
-import { buttonVariants } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  getJobs,
+  updateJobAssignee,
+  updateJobStatus,
+  type JobFilters,
+  type JobListItem,
+  type JobStatus,
+} from "@/lib/supabase/queries/jobs";
+import { revalidatePath } from "next/cache";
+import { buttonVariants } from "@/components/ui/button";
+import { JobAssigneeSelect } from "@/components/jobs/JobAssigneeSelect";
+import { JobsFilters } from "@/components/jobs/JobsFilters";
+import { JobStatusSelect } from "@/components/jobs/JobStatusSelect";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
   TableBody,
@@ -27,6 +29,10 @@ interface JobsPageProps {
   searchParams: Promise<{
     q?: string;
     status?: JobFilters["status"];
+    assignedTo?: string;
+    createdRange?: JobFilters["createdRange"];
+    createdFrom?: string;
+    createdTo?: string;
   }>;
 }
 
@@ -60,13 +66,38 @@ function nextVisit(job: JobListItem) {
   return upcoming.start_time ? `${formatted} ${upcoming.start_time.slice(0, 5)}` : formatted;
 }
 
-const statusClasses: Record<string, string> = {
-  active: "bg-green-100 text-green-700",
-  in_progress: "bg-blue-100 text-blue-700",
-  completed: "bg-gray-100 text-gray-700",
-  closed: "bg-slate-100 text-slate-700",
-  cancelled: "bg-red-100 text-red-700",
-};
+function addressText(job: JobListItem) {
+  const address = job.client_addresses;
+  if (!address) return "No service address";
+  return [address.street1, address.street2, address.city, address.state, address.zip]
+    .filter(Boolean)
+    .join(", ");
+}
+
+function primaryAssigneeId(job: JobListItem) {
+  const sortedVisits = [...job.job_visits].sort((a, b) => {
+    const aDate = a.scheduled_date ?? "";
+    const bDate = b.scheduled_date ?? "";
+    return String(aDate).localeCompare(String(bDate));
+  });
+
+  for (const visit of sortedVisits) {
+    const assignedUser = (visit.visit_assignments ?? []).find((assignment) => assignment.users?.id)?.users;
+    if (assignedUser?.id) return assignedUser.id;
+  }
+
+  return "unassigned";
+}
+
+function formatCreatedAt(value: string | null) {
+  if (!value) return "Recently";
+
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(new Date(value));
+}
 
 export default async function JobsPage({ searchParams }: JobsPageProps) {
   const supabase = await createClient();
@@ -86,13 +117,45 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
 
   const params = await searchParams;
   const status = params.status ?? "all";
-  const jobs = await getJobs(profile.business_id, {
-    search: params.q,
-    status,
-  });
+  const assignedTo = params.assignedTo ?? "all";
+  const createdRange = params.createdRange ?? "all";
+  const createdFrom = params.createdFrom ?? "";
+  const createdTo = params.createdTo ?? "";
+  const [{ data: teamMembers }, jobs] = await Promise.all([
+    supabase
+      .from("users")
+      .select("id, first_name, last_name")
+      .eq("business_id", profile.business_id)
+      .eq("is_active", true)
+      .order("first_name", { ascending: true }),
+    getJobs(profile.business_id, {
+      search: params.q,
+      status,
+      assignedTo,
+      createdRange,
+      createdFrom,
+      createdTo,
+    }),
+  ]);
+
+  async function updateStatusAction(jobId: string, nextStatus: JobStatus) {
+    "use server";
+    await updateJobStatus(jobId, nextStatus);
+    revalidatePath("/jobs");
+    revalidatePath(`/jobs/${jobId}`);
+    revalidatePath("/home");
+  }
+
+  async function updateAssigneeAction(jobId: string, userId: string) {
+    "use server";
+    await updateJobAssignee(jobId, userId);
+    revalidatePath("/jobs");
+    revalidatePath(`/jobs/${jobId}`);
+    revalidatePath("/home");
+  }
 
   return (
-    <div className="max-w-6xl space-y-6">
+    <div className="w-full max-w-none space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Jobs</h1>
@@ -114,33 +177,17 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <form className="flex flex-col gap-3 sm:flex-row" action="/jobs">
-            <div className="relative flex-1">
-              <Search className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
-              <Input
-                name="q"
-                defaultValue={params.q ?? ""}
-                placeholder="Search job title or number"
-                className="pl-8"
-              />
-            </div>
-            <Select name="status" defaultValue={status}>
-              <SelectTrigger className="w-full sm:w-48">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All statuses</SelectItem>
-                <SelectItem value="active">Active</SelectItem>
-                <SelectItem value="in_progress">In progress</SelectItem>
-                <SelectItem value="completed">Completed</SelectItem>
-                <SelectItem value="closed">Closed</SelectItem>
-                <SelectItem value="cancelled">Cancelled</SelectItem>
-              </SelectContent>
-            </Select>
-            <button className={buttonVariants({ variant: "outline" })} type="submit">
-              Filter
-            </button>
-          </form>
+          <JobsFilters
+            teamMembers={teamMembers ?? []}
+            initialValues={{
+              q: params.q ?? "",
+              status,
+              assignedTo,
+              createdRange,
+              createdFrom,
+              createdTo,
+            }}
+          />
 
           {jobs.length === 0 ? (
             <div className="rounded-lg border border-dashed p-8 text-center">
@@ -150,14 +197,17 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
               </p>
             </div>
           ) : (
-            <Table>
+            <Table className="min-w-[1120px]">
               <TableHeader>
                 <TableRow>
-                  <TableHead>Job</TableHead>
-                  <TableHead>Client</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Next Visit</TableHead>
-                  <TableHead>Total Value</TableHead>
+                  <TableHead className="w-[14%]">Job</TableHead>
+                  <TableHead className="w-[14%]">Client</TableHead>
+                  <TableHead className="w-[18%]">Address</TableHead>
+                  <TableHead className="w-[14%]">Assignee</TableHead>
+                  <TableHead className="w-[14%]">Status</TableHead>
+                  <TableHead className="w-[10%]">Created at</TableHead>
+                  <TableHead className="w-[10%]">Next Visit</TableHead>
+                  <TableHead className="w-[6%]">Total Value</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -169,14 +219,35 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
                       </Link>
                       <p className="text-xs text-muted-foreground">{job.job_number}</p>
                     </TableCell>
-                    <TableCell>{clientName(job)}</TableCell>
                     <TableCell>
-                      <Badge className={statusClasses[job.status] ?? statusClasses.active}>
-                        {job.status.replace("_", " ")}
-                      </Badge>
+                      <div className="truncate text-sm text-[#1a2d3d]" title={clientName(job)}>
+                        {clientName(job)}
+                      </div>
                     </TableCell>
-                    <TableCell>{nextVisit(job)}</TableCell>
-                    <TableCell>{formatCurrency(job.total_price)}</TableCell>
+                    <TableCell>
+                      <div className="truncate text-sm text-[#4a6070]" title={addressText(job)}>
+                        {addressText(job)}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <JobAssigneeSelect
+                        jobId={job.id}
+                        assignedUserId={primaryAssigneeId(job)}
+                        teamMembers={teamMembers ?? []}
+                        disabled={job.job_visits.length === 0}
+                        updateAction={updateAssigneeAction}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <JobStatusSelect
+                        jobId={job.id}
+                        status={job.status as JobStatus}
+                        updateAction={updateStatusAction}
+                      />
+                    </TableCell>
+                    <TableCell className="text-sm">{formatCreatedAt(job.created_at)}</TableCell>
+                    <TableCell className="text-sm">{nextVisit(job)}</TableCell>
+                    <TableCell className="text-sm">{formatCurrency(job.total_price)}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>

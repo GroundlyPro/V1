@@ -220,7 +220,14 @@ export default async function SettingsPage() {
       .maybeSingle();
     if (!currentProfile) return { error: "Profile not found" };
 
-    const notificationUpdate = values as never;
+    const notificationUpdate = {
+      email: values.email || null,
+      email_notifications: values.email_notifications,
+      sms_notifications: values.sms_notifications,
+      job_reminders_enabled: values.job_reminders_enabled,
+      job_reminder_24h: values.job_reminder_24h,
+      job_reminder_1h: values.job_reminder_1h,
+    } as never;
 
     const { error } = await serverSupabase
       .from("businesses")
@@ -346,6 +353,7 @@ export default async function SettingsPage() {
             <CardContent>
               <NotificationsTab
                 defaultValues={{
+                  email: business.email ?? "",
                   email_notifications: business.email_notifications ?? true,
                   sms_notifications: business.sms_notifications ?? false,
                   job_reminders_enabled: business.job_reminders_enabled ?? true,

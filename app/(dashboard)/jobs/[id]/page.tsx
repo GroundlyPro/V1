@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import {
   addLineItem,
   createVisit,
+  deleteVisit,
   getJob,
   getJobFormOptions,
   removeLineItem,
@@ -169,6 +170,14 @@ export default async function JobDetailPage({ params }: JobDetailPageProps) {
     revalidatePath("/home");
   }
 
+  async function deleteVisitAction(formData: FormData) {
+    "use server";
+    const visitId = String(formData.get("visitId") ?? "");
+    if (!visitId) return;
+    await deleteVisit(visitId);
+    revalidatePath(`/jobs/${id}`);
+  }
+
   async function createVisitAction(values: VisitFormValues) {
     "use server";
     try {
@@ -234,6 +243,15 @@ export default async function JobDetailPage({ params }: JobDetailPageProps) {
   const cleanerDisplayName = assignedCleaner
     ? `${assignedCleaner.first_name} ${assignedCleaner.last_name}`.trim()
     : "No cleaner assigned";
+  const assignedTeam = Array.from(
+    new Map(
+      sortedVisits
+        .flatMap((visit) => visit.visit_assignments ?? [])
+        .map((assignment) => assignment.users)
+        .filter(Boolean)
+        .map((user) => [user!.id, `${user!.first_name} ${user!.last_name}`.trim()])
+    ).values()
+  );
 
   async function sendToClientAction() {
     "use server";
@@ -400,6 +418,12 @@ export default async function JobDetailPage({ params }: JobDetailPageProps) {
               </div>
               <div className="grid grid-cols-2 gap-3 pt-2">
                 <div>
+                  <p className="text-[#9baab8]">Assigned team</p>
+                  <p className="font-medium text-[#1a2d3d]">
+                    {assignedTeam.length > 0 ? assignedTeam.join(", ") : "Unassigned"}
+                  </p>
+                </div>
+                <div>
                   <p className="text-[#9baab8]">Type</p>
                   <p className="font-medium text-[#1a2d3d]">{job.type.replace("_", "-")}</p>
                 </div>
@@ -440,7 +464,9 @@ export default async function JobDetailPage({ params }: JobDetailPageProps) {
               {sortedVisits.length === 0 ? (
                 <p className="text-sm text-[#9baab8]">No visits scheduled yet.</p>
               ) : (
-                sortedVisits.map((visit) => <VisitCard key={visit.id} visit={visit} />)
+                sortedVisits.map((visit) => (
+                  <VisitCard key={visit.id} visit={visit} deleteAction={deleteVisitAction} />
+                ))
               )}
               <VisitForm teamMembers={options.teamMembers} action={createVisitAction} />
             </CardContent>

@@ -32,7 +32,7 @@ export async function POST(request: Request) {
 
   const { data: business } = await supabase
     .from("businesses")
-    .select("name")
+    .select("name, email")
     .eq("id", profile.business_id)
     .single();
 
@@ -57,6 +57,7 @@ export async function POST(request: Request) {
     await resend.emails.send({
       from: getFromAddress(),
       to: clientEmail,
+      reply_to: business?.email ?? undefined,
       subject: `Quote from ${businessName}: ${quote.title}`,
       html: quoteEmailHtml({
         businessName,

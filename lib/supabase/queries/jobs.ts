@@ -21,7 +21,16 @@ export type JobStatus = "active" | "in_progress" | "completed" | "closed" | "can
 
 export type JobListItem = JobRow & {
   clients: Pick<ClientRow, "id" | "first_name" | "last_name" | "company_name"> | null;
-  job_visits: Pick<VisitRow, "id" | "scheduled_date" | "start_time" | "status">[];
+  client_addresses: Pick<
+    AddressRow,
+    "id" | "label" | "street1" | "street2" | "city" | "state" | "zip"
+  > | null;
+  job_visits: (Pick<VisitRow, "id" | "scheduled_date" | "start_time" | "status"> & {
+    visit_assignments: {
+      id: string;
+      users: Pick<UserRow, "id" | "first_name" | "last_name"> | null;
+    }[];
+  })[];
 };
 
 export type JobDetail = JobRow & {
@@ -40,6 +49,27 @@ export type JobDetail = JobRow & {
 export interface JobFilters {
   status?: "all" | JobStatus;
   search?: string;
+  assignedTo?: string;
+  createdRange?: "all" | "today" | "this_week" | "this_month" | "custom";
+  createdFrom?: string;
+  createdTo?: string;
+}
+
+function padDatePart(value: number) {
+  return String(value).padStart(2, "0");
+}
+
+function toLocalDateString(date: Date) {
+  return `${date.getFullYear()}-${padDatePart(date.getMonth() + 1)}-${padDatePart(date.getDate())}`;
+}
+
+function startOfWeek(date: Date) {
+  const nextDate = new Date(date);
+  const dayOfWeek = nextDate.getDay();
+  const diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+  nextDate.setDate(nextDate.getDate() + diffToMonday);
+  nextDate.setHours(0, 0, 0, 0);
+  return nextDate;
 }
 
 export interface JobFormInput {
@@ -191,7 +221,8 @@ export async function getJobs(
       `
       *,
       clients(id, first_name, last_name, company_name),
-      job_visits(id, scheduled_date, start_time, status)
+      client_addresses(id, label, street1, street2, city, state, zip),
+      job_visits(id, scheduled_date, start_time, status, visit_assignments(id, users(id, first_name, last_name)))
     `
     )
     .eq("business_id", businessId)
@@ -211,7 +242,69 @@ export async function getJobs(
   const { data, error } = await query;
   if (error) throw error;
 
-  return (data ?? []) as JobListItem[];
+  const jobs = (data ?? []) as JobListItem[];
+
+  return jobs.filter((job) => {
+    if (filters.assignedTo && filters.assignedTo !== "all") {
+      const assignedUserIds = job.job_visits.flatMap((visit) =>
+        (visit.visit_assignments ?? [])
+          .map((assignment) => assignment.users?.id)
+          .filter((value): value is string => Boolean(value))
+      );
+
+      if (filters.assignedTo === "unassigned") {
+        if (assignedUserIds.length > 0) return false;
+      } else if (!assignedUserIds.includes(filters.assignedTo)) {
+        return false;
+      }
+    }
+
+    if (filters.createdRange && filters.createdRange !== "all") {
+      const createdDate = typeof job.created_at === "string" ? job.created_at.slice(0, 10) : "";
+      const now = new Date();
+      const today = toLocalDateString(now);
+      const createdAtDate = createdDate ? new Date(`${createdDate}T00:00:00`) : null;
+
+      if (filters.createdRange === "today" && createdDate !== today) return false;
+
+      if (filters.createdRange === "this_week") {
+        if (!createdAtDate) return false;
+        const weekStart = startOfWeek(now);
+        const endOfWeek = new Date(weekStart);
+        endOfWeek.setDate(weekStart.getDate() + 6);
+        endOfWeek.setHours(23, 59, 59, 999);
+
+        if (createdAtDate < weekStart || createdAtDate > endOfWeek) return false;
+      }
+
+      if (filters.createdRange === "this_month") {
+        if (!createdAtDate) return false;
+
+        if (
+          createdAtDate.getFullYear() !== now.getFullYear() ||
+          createdAtDate.getMonth() !== now.getMonth()
+        ) {
+          return false;
+        }
+      }
+
+      if (filters.createdRange === "custom") {
+        if (!createdAtDate) return false;
+
+        if (filters.createdFrom) {
+          const fromDate = new Date(`${filters.createdFrom}T00:00:00`);
+          if (createdAtDate < fromDate) return false;
+        }
+
+        if (filters.createdTo) {
+          const toDate = new Date(`${filters.createdTo}T23:59:59.999`);
+          if (createdAtDate > toDate) return false;
+        }
+      }
+    }
+
+    return true;
+  });
 }
 
 export async function getJob(id: string, businessId?: string): Promise<JobDetail | null> {
@@ -431,6 +524,60 @@ export async function updateJob(id: string, input: JobFormInput) {
   if (error) throw error;
 }
 
+export async function updateJobStatus(id: string, status: JobStatus) {
+  const { supabase, profile } = await getMyProfile();
+
+  const { error } = await supabase
+    .from("jobs")
+    .update({ status })
+    .eq("id", id)
+    .eq("business_id", profile.business_id);
+
+  if (error) throw error;
+}
+
+export async function updateJobAssignee(id: string, userId: string) {
+  const { supabase, profile } = await getMyProfile();
+
+  const { data: job, error: jobError } = await supabase
+    .from("jobs")
+    .select("id, job_visits(id, scheduled_date, created_at)")
+    .eq("id", id)
+    .eq("business_id", profile.business_id)
+    .maybeSingle();
+
+  if (jobError) throw jobError;
+  if (!job) throw new Error("Job not found");
+
+  const primaryVisit = [...(job.job_visits ?? [])].sort((a, b) => {
+    const aDate = a.scheduled_date ?? a.created_at ?? "";
+    const bDate = b.scheduled_date ?? b.created_at ?? "";
+    return String(aDate).localeCompare(String(bDate));
+  })[0];
+
+  if (!primaryVisit) {
+    throw new Error("Schedule a visit before assigning this job.");
+  }
+
+  const { error: deleteError } = await supabase
+    .from("visit_assignments")
+    .delete()
+    .eq("visit_id", primaryVisit.id)
+    .eq("business_id", profile.business_id);
+
+  if (deleteError) throw deleteError;
+
+  if (userId && userId !== "unassigned") {
+    const { error: insertError } = await supabase.from("visit_assignments").insert({
+      business_id: profile.business_id,
+      visit_id: primaryVisit.id,
+      user_id: userId,
+    });
+
+    if (insertError) throw insertError;
+  }
+}
+
 export async function addLineItem(jobId: string, input: LineItemInput) {
   const { supabase, profile } = await getMyProfile();
   const quantity = Number(input.quantity || 0);
@@ -530,6 +677,16 @@ export async function updateVisit(visitId: string, input: Partial<VisitInput> & 
     .eq("id", visitId)
     .eq("business_id", profile.business_id);
 
+  if (error) throw error;
+}
+
+export async function deleteVisit(visitId: string) {
+  const { supabase, profile } = await getMyProfile();
+  const { error } = await supabase
+    .from("job_visits")
+    .delete()
+    .eq("id", visitId)
+    .eq("business_id", profile.business_id);
   if (error) throw error;
 }
 

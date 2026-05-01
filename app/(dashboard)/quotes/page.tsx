@@ -1,25 +1,22 @@
 import Link from "next/link";
+import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { ArrowDown, ArrowUp, ArrowUpRight, CircleHelp, Plus, Search } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpRight, CircleHelp, Plus } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import {
   getQuoteReportStats,
   getQuotes,
+  type QuoteCreatedRange,
   type QuoteFilters,
   type QuoteListItem,
   type QuoteReportStats,
+  type QuoteStatus,
+  updateQuoteStatus,
 } from "@/lib/supabase/queries/quotes";
 import { buttonVariants } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+import { QuotesFilters } from "@/components/quotes/QuotesFilters";
+import { QuoteStatusSelect } from "@/components/quotes/QuoteStatusSelect";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -33,6 +30,10 @@ interface QuotesPageProps {
   searchParams: Promise<{
     q?: string;
     status?: QuoteFilters["status"];
+    assignedTo?: string;
+    createdRange?: QuoteCreatedRange;
+    createdFrom?: string;
+    createdTo?: string;
   }>;
 }
 
@@ -54,6 +55,15 @@ function formatCompactCurrency(value: number) {
   }).format(value);
 }
 
+function formatDateTime(value: string | null) {
+  if (!value) return "—";
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(new Date(value));
+}
+
 function formatDate(value: string | null) {
   if (!value) return "—";
   return new Intl.DateTimeFormat("en-US", {
@@ -63,14 +73,13 @@ function formatDate(value: string | null) {
   }).format(new Date(`${value}T00:00:00`));
 }
 
-const statusClasses: Record<string, string> = {
-  draft: "bg-gray-100 text-gray-700",
-  sent: "bg-blue-100 text-blue-700",
-  approved: "bg-green-100 text-green-700",
-  declined: "bg-red-100 text-red-700",
-  expired: "bg-orange-100 text-orange-700",
-  changes_requested: "bg-yellow-100 text-yellow-700",
-};
+function addressText(quote: QuoteListItem) {
+  const address = quote.client_addresses;
+  if (!address) return "No service address";
+  return [address.street1, address.street2, address.city, address.state, address.zip]
+    .filter(Boolean)
+    .join(", ");
+}
 
 function DeltaPill({ value, suffix = "" }: { value: number; suffix?: string }) {
   const isPositive = value > 0;
@@ -210,13 +219,35 @@ export default async function QuotesPage({ searchParams }: QuotesPageProps) {
 
   const params = await searchParams;
   const status = params.status ?? "all";
-  const [quotes, report] = await Promise.all([
+  const assignedTo = params.assignedTo ?? "all";
+  const createdRange = params.createdRange ?? "all";
+  const createdFrom = params.createdFrom ?? "";
+  const createdTo = params.createdTo ?? "";
+  const [{ data: teamMembers }, quotes, report] = await Promise.all([
+    supabase
+      .from("users")
+      .select("id, first_name, last_name")
+      .eq("business_id", profile.business_id)
+      .eq("is_active", true)
+      .order("first_name", { ascending: true }),
     getQuotes(profile.business_id, {
       search: params.q,
       status,
+      assignedTo,
+      createdRange,
+      createdFrom,
+      createdTo,
     }),
     getQuoteReportStats(profile.business_id),
   ]);
+
+  async function updateStatusAction(quoteId: string, nextStatus: QuoteStatus) {
+    "use server";
+    await updateQuoteStatus(quoteId, nextStatus);
+    revalidatePath("/quotes");
+    revalidatePath(`/quotes/${quoteId}`);
+    revalidatePath("/home");
+  }
 
   return (
     <div className="max-w-6xl space-y-6">
@@ -243,34 +274,17 @@ export default async function QuotesPage({ searchParams }: QuotesPageProps) {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <form className="flex flex-col gap-3 sm:flex-row" action="/quotes">
-            <div className="relative flex-1">
-              <Search className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
-              <Input
-                name="q"
-                defaultValue={params.q ?? ""}
-                placeholder="Search title or quote number"
-                className="pl-8"
-              />
-            </div>
-            <Select name="status" defaultValue={status}>
-              <SelectTrigger className="w-full sm:w-48">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All statuses</SelectItem>
-                <SelectItem value="draft">Draft</SelectItem>
-                <SelectItem value="sent">Sent</SelectItem>
-                <SelectItem value="approved">Approved</SelectItem>
-                <SelectItem value="changes_requested">Changes requested</SelectItem>
-                <SelectItem value="declined">Declined</SelectItem>
-                <SelectItem value="expired">Expired</SelectItem>
-              </SelectContent>
-            </Select>
-            <button className={buttonVariants({ variant: "outline" })} type="submit">
-              Filter
-            </button>
-          </form>
+          <QuotesFilters
+            teamMembers={teamMembers ?? []}
+            initialValues={{
+              q: params.q ?? "",
+              status,
+              assignedTo,
+              createdRange,
+              createdFrom,
+              createdTo,
+            }}
+          />
 
           {quotes.length === 0 ? (
             <div className="rounded-lg border border-dashed p-8 text-center">
@@ -280,14 +294,16 @@ export default async function QuotesPage({ searchParams }: QuotesPageProps) {
               </p>
             </div>
           ) : (
-            <Table>
+            <Table className="table-fixed">
               <TableHeader>
                 <TableRow>
-                  <TableHead>Quote</TableHead>
-                  <TableHead>Client</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Valid Until</TableHead>
-                  <TableHead>Total</TableHead>
+                  <TableHead className="w-[18%]">Quote</TableHead>
+                  <TableHead className="w-[16%]">Client</TableHead>
+                  <TableHead className="w-[22%]">Address</TableHead>
+                  <TableHead className="w-[18%]">Status</TableHead>
+                  <TableHead className="w-[12%]">Created At</TableHead>
+                  <TableHead className="w-[10%]">Valid Until</TableHead>
+                  <TableHead className="w-[4%]">Total</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -302,12 +318,24 @@ export default async function QuotesPage({ searchParams }: QuotesPageProps) {
                       </Link>
                       <p className="text-xs text-muted-foreground">{quote.quote_number}</p>
                     </TableCell>
-                    <TableCell>{clientName(quote)}</TableCell>
                     <TableCell>
-                      <Badge className={statusClasses[quote.status] ?? statusClasses.draft}>
-                        {quote.status.replace("_", " ")}
-                      </Badge>
+                      <div className="truncate text-sm text-[#1a2d3d]" title={clientName(quote)}>
+                        {clientName(quote)}
+                      </div>
                     </TableCell>
+                    <TableCell>
+                      <div className="truncate text-sm text-[#4a6070]" title={addressText(quote)}>
+                        {addressText(quote)}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <QuoteStatusSelect
+                        quoteId={quote.id}
+                        status={quote.status as QuoteStatus}
+                        updateAction={updateStatusAction}
+                      />
+                    </TableCell>
+                    <TableCell>{formatDateTime(quote.created_at)}</TableCell>
                     <TableCell>{formatDate(quote.valid_until)}</TableCell>
                     <TableCell>{formatCurrency(quote.total)}</TableCell>
                   </TableRow>

@@ -35,6 +35,15 @@ function formatDateTime(value: string | null) {
   }).format(new Date(value));
 }
 
+function formatDate(value: string | null) {
+  if (!value) return "Not recorded";
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(new Date(`${value}T00:00:00`));
+}
+
 export default async function RequestDetailPage({ params }: RequestDetailPageProps) {
   const { id } = await params;
   const supabase = await createClient();
@@ -183,6 +192,14 @@ export default async function RequestDetailPage({ params }: RequestDetailPagePro
                 <span>{request.address}</span>
               </div>
             ) : null}
+            {request.users ? (
+              <div className="flex items-center gap-2">
+                <UserRound className="size-4 text-muted-foreground" />
+                <span>
+                  Assigned to {request.users.first_name} {request.users.last_name}
+                </span>
+              </div>
+            ) : null}
           </CardContent>
         </Card>
 
@@ -197,12 +214,33 @@ export default async function RequestDetailPage({ params }: RequestDetailPagePro
                 {request.service_type || "Not specified"}
               </p>
             </div>
+            <div className="grid gap-5 md:grid-cols-2">
+              <div>
+                <p className="text-muted-foreground">Request date</p>
+                <p className="mt-1 font-medium text-gray-900">{formatDate(request.requested_on)}</p>
+              </div>
+              <div>
+                <p className="text-muted-foreground">Reminder</p>
+                <p className="mt-1 font-medium text-gray-900">
+                  {request.reminder_at ? formatDateTime(request.reminder_at) : "No reminder set"}
+                </p>
+              </div>
+            </div>
             <div>
               <p className="text-muted-foreground">Message</p>
               <p className="mt-1 whitespace-pre-wrap text-gray-900">
                 {request.message || "No message provided."}
               </p>
             </div>
+            {request.image_url ? (
+              <div>
+                <p className="mb-2 text-muted-foreground">Reference image</p>
+                <a href={request.image_url} target="_blank" rel="noreferrer" className="inline-flex">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={request.image_url} alt="" className="max-h-72 rounded-lg border object-cover" />
+                </a>
+              </div>
+            ) : null}
           </CardContent>
         </Card>
       </div>

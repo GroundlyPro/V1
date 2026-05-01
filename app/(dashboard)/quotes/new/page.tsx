@@ -25,6 +25,9 @@ export default async function NewQuotePage() {
   if (!profile) redirect("/onboarding");
 
   const { clients, teamMembers } = await getQuoteFormOptions(profile.business_id);
+  const createdAtLabel = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Calcutta",
+  }).format(new Date());
 
   async function createAction(values: QuoteFormValues) {
     "use server";
@@ -74,6 +77,7 @@ export default async function NewQuotePage() {
             <QuoteForm
               clients={clients}
               teamMembers={teamMembers}
+              createdAtLabel={createdAtLabel}
               action={createAction}
               submitLabel="Create quote"
               showPricingFields

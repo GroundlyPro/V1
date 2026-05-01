@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Mail, MapPin, Phone } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
+import { ClientRowActions } from "@/components/clients/ClientRowActions";
+import { ClientStatusSelect } from "@/components/clients/ClientStatusSelect";
 import { TableCell, TableRow } from "@/components/ui/table";
 import type { ClientListItem } from "@/lib/supabase/queries/clients";
 
@@ -21,23 +22,18 @@ function formatAddress(client: ClientListItem) {
   return [primary.street1, primary.city, primary.state].filter(Boolean).join(", ");
 }
 
-const statusClasses: Record<string, string> = {
-  active: "bg-green-100 text-green-700",
-  lead: "bg-blue-100 text-blue-700",
-  inactive: "bg-gray-100 text-gray-600",
-};
-
 export function ClientCard({ client }: { client: ClientListItem }) {
   const name = `${client.first_name} ${client.last_name}`;
+  const displayName = client.company_name ? `${client.company_name} (${name})` : name;
 
   return (
-    <TableRow>
+    <TableRow className="group">
       <TableCell>
         <Link
           href={`/clients/${client.id}`}
           className="font-medium text-gray-900 hover:text-brand"
         >
-          {client.company_name ? `${client.company_name} (${name})` : name}
+          {displayName}
         </Link>
       </TableCell>
       <TableCell>
@@ -52,17 +48,26 @@ export function ClientCard({ client }: { client: ClientListItem }) {
           </span>
         </div>
       </TableCell>
-      <TableCell className="max-w-xs">
-        <span className="inline-flex items-center gap-1.5 truncate text-muted-foreground">
+      <TableCell className="w-[28%] max-w-0 whitespace-normal">
+        <span className="flex min-w-0 items-center gap-1.5 text-muted-foreground">
           <MapPin className="size-3.5 shrink-0" />
-          {formatAddress(client)}
+          <span className="block truncate">{formatAddress(client)}</span>
         </span>
       </TableCell>
-      <TableCell>{formatCurrency(client.balance)}</TableCell>
-      <TableCell>
-        <Badge className={statusClasses[client.status] ?? statusClasses.inactive}>
-          {client.status}
-        </Badge>
+      <TableCell className="w-[12%] whitespace-nowrap">{formatCurrency(client.balance)}</TableCell>
+      <TableCell className="w-[12%] whitespace-nowrap">
+        <ClientStatusSelect
+          clientId={client.id}
+          status={(client.status as "active" | "lead" | "inactive") ?? "inactive"}
+        />
+      </TableCell>
+      <TableCell className="w-[4%] whitespace-nowrap text-right">
+        <ClientRowActions
+          clientId={client.id}
+          clientName={displayName}
+          email={client.email}
+          phone={client.phone}
+        />
       </TableCell>
     </TableRow>
   );

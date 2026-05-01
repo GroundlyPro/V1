@@ -129,6 +129,7 @@ function OverviewMetrics({
 
 function RevenueBars({ data }: { data: ReportsOverview["revenueByMonth"] }) {
   const max = Math.max(...data.map((item) => item.value), 1);
+  const columnsClass = data.length <= 4 ? "grid-cols-4" : data.length <= 6 ? "grid-cols-6" : "grid-cols-12";
 
   return (
     <div className="px-5 pb-5 pt-3">
@@ -139,20 +140,20 @@ function RevenueBars({ data }: { data: ReportsOverview["revenueByMonth"] }) {
           {data.map((item) => {
             const height = item.value > 0 ? Math.max((item.value / max) * 100, 8) : 3;
             return (
-              <div key={item.month} className="flex h-full min-w-0 flex-1 flex-col justify-end">
+              <div key={item.label} className="flex h-full min-w-0 flex-1 flex-col justify-end">
                 <div
                   className="rounded-t bg-[#5d3fc2]"
                   style={{ height: `${height}%`, opacity: item.value > 0 ? 1 : 0.08 }}
-                  title={`${item.month}: ${money(item.value)}`}
+                  title={`${item.label}: ${money(item.value)}`}
                 />
               </div>
             );
           })}
         </div>
       </div>
-      <div className="mt-2 grid grid-cols-12 gap-2 px-4 text-center text-[11px] font-medium text-[#9baab8]">
+      <div className={`mt-2 grid ${columnsClass} gap-2 px-4 text-center text-[11px] font-medium text-[#9baab8]`}>
         {data.map((item) => (
-          <span key={item.month}>{item.month}</span>
+          <span key={item.label}>{item.label}</span>
         ))}
       </div>
     </div>
@@ -274,19 +275,25 @@ function Cashflow({
         <CardHeader title="Upcoming payouts" period={period} paramKey="cp" customDate={customDate} />
         <div className="px-4 pb-4 pt-3">
           <div className="text-2xl font-bold text-[#12384a]">{money(report.cashflow.upcomingPayouts)}</div>
-          <EmptyText>Upcoming payouts appear after payments settle</EmptyText>
+          <EmptyText>Estimated upcoming job costs</EmptyText>
         </div>
       </ReportCard>
       <ReportCard className="min-h-32">
         <CardHeader title="Projected income" period={period} paramKey="cp" customDate={customDate} href="/jobs" />
         <div className="space-y-2 px-4 pb-4 pt-3">
           <div>
-            <div className="text-lg font-bold text-[#12384a]">{money(report.cashflow.dueToday)}</div>
-            <EmptyText>Due today</EmptyText>
+            <div className="text-2xl font-bold text-[#12384a]">{money(report.cashflow.projectedIncome)}</div>
+            <EmptyText>Future scheduled jobs</EmptyText>
           </div>
-          <div>
-            <div className="text-lg font-bold text-[#12384a]">{money(report.cashflow.dueUnderSevenDays)}</div>
-            <EmptyText>Due in &lt;7 days</EmptyText>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <div className="text-sm font-bold text-[#12384a]">{money(report.cashflow.dueToday)}</div>
+              <EmptyText>Due today</EmptyText>
+            </div>
+            <div>
+              <div className="text-sm font-bold text-[#12384a]">{money(report.cashflow.dueUnderSevenDays)}</div>
+              <EmptyText>Due in &lt;7 days</EmptyText>
+            </div>
           </div>
         </div>
       </ReportCard>
@@ -404,7 +411,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
               <CardHeader title="Lead conversion time" period={leadsPeriod} paramKey="lp" customDate={leadsDate} />
               <div className="px-4 pb-4 pt-8">
                 <div className="text-2xl font-bold text-[#12384a]">
-                  {report.leadConversion.leadConversionDays ?? 0} days
+                  {report.leadConversion.leadConversionDays === null ? "--" : report.leadConversion.leadConversionDays} days
                 </div>
               </div>
             </ReportCard>
@@ -459,7 +466,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
         <h2 className="text-xl font-bold text-[#12384a]">Jobs</h2>
         <div className="grid gap-4 xl:grid-cols-2">
           <ReportCard>
-            <CardHeader title="Scheduled job value" period={jobsPeriod} paramKey="jp" customDate={jobsDate} href="/schedule" />
+            <CardHeader title="Scheduled job value" href="/schedule" />
             <MiniBarChart
               data={report.jobs.scheduledValue.map((item) => ({ name: item.label, value: item.value }))}
               moneyLabels
@@ -487,10 +494,10 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
             </div>
           </ReportCard>
           <ReportCard>
-            <CardHeader title="Monthly recurring job value" period={jobsPeriod} paramKey="jp" customDate={jobsDate} href="/jobs" />
+            <CardHeader title="Recurring job value" period={jobsPeriod} paramKey="jp" customDate={jobsDate} href="/jobs" />
             <div className="px-4 pb-4 pt-4">
               <div className="text-2xl font-bold text-[#12384a]">{money(report.jobs.monthlyRecurringJobValue)}</div>
-              <EmptyText>Recurring jobs created this month</EmptyText>
+              <EmptyText>Recurring jobs in the selected period</EmptyText>
             </div>
           </ReportCard>
         </div>

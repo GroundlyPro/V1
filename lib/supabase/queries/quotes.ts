@@ -20,8 +20,11 @@ export type QuoteStatus =
   | "expired"
   | "declined";
 
+export type QuoteCreatedRange = "all" | "today" | "this_week" | "this_month" | "custom";
+
 export type QuoteListItem = QuoteRow & {
   clients: Pick<ClientRow, "id" | "first_name" | "last_name" | "company_name"> | null;
+  client_addresses: AddressRow | null;
 };
 
 export type QuoteDetail = QuoteRow & {
@@ -36,6 +39,10 @@ export type QuoteDetail = QuoteRow & {
 export interface QuoteFilters {
   status?: "all" | QuoteStatus;
   search?: string;
+  assignedTo?: string;
+  createdRange?: QuoteCreatedRange;
+  createdFrom?: string;
+  createdTo?: string;
 }
 
 export type QuoteReportStats = {
@@ -65,6 +72,7 @@ export interface QuoteFormInput {
   client_id: string;
   address_id?: string;
   title: string;
+  status?: QuoteStatus;
   frequency?: "none" | "one_time" | "weekly" | "biweekly" | "monthly";
   valid_until?: string;
   message_to_client?: string;
@@ -118,6 +126,23 @@ function percent(numerator: number, denominator: number) {
   return Math.round((numerator / denominator) * 100);
 }
 
+function padDatePart(value: number) {
+  return String(value).padStart(2, "0");
+}
+
+function toLocalDateString(date: Date) {
+  return `${date.getFullYear()}-${padDatePart(date.getMonth() + 1)}-${padDatePart(date.getDate())}`;
+}
+
+function startOfWeek(date: Date) {
+  const nextDate = new Date(date);
+  const dayOfWeek = nextDate.getDay();
+  const diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+  nextDate.setDate(nextDate.getDate() + diffToMonday);
+  nextDate.setHours(0, 0, 0, 0);
+  return nextDate;
+}
+
 async function recalculateQuoteTotals(
   supabase: Awaited<ReturnType<typeof createSupabaseClient>>,
   quoteId: string,
@@ -149,7 +174,7 @@ export async function getQuotes(
   const supabase = await createSupabaseClient();
   let query = supabase
     .from("quotes")
-    .select("*, clients(id, first_name, last_name, company_name)")
+    .select("*, clients(id, first_name, last_name, company_name), client_addresses(*)")
     .eq("business_id", businessId)
     .order("created_at", { ascending: false });
 
@@ -167,7 +192,59 @@ export async function getQuotes(
   const { data, error } = await query;
   if (error) throw error;
 
-  return (data ?? []) as QuoteListItem[];
+  let quotes = (data ?? []) as QuoteListItem[];
+
+  if (filters.assignedTo && filters.assignedTo !== "all") {
+    quotes = quotes.filter((quote) => {
+      const assignedUserId = decodeTeamFromNotes(quote.internal_notes).assignedUserId;
+      if (filters.assignedTo === "unassigned") return !assignedUserId;
+      return assignedUserId === filters.assignedTo;
+    });
+  }
+
+  if (filters.createdRange && filters.createdRange !== "all") {
+    quotes = quotes.filter((quote) => {
+      const createdDate = typeof quote.created_at === "string" ? quote.created_at.slice(0, 10) : "";
+      const now = new Date();
+      const today = toLocalDateString(now);
+      const createdAtDate = createdDate ? new Date(`${createdDate}T00:00:00`) : null;
+
+      if (filters.createdRange === "today") return createdDate === today;
+
+      if (filters.createdRange === "this_week") {
+        if (!createdAtDate) return false;
+        const weekStart = startOfWeek(now);
+        const endOfWeek = new Date(weekStart);
+        endOfWeek.setDate(weekStart.getDate() + 6);
+        endOfWeek.setHours(23, 59, 59, 999);
+        return createdAtDate >= weekStart && createdAtDate <= endOfWeek;
+      }
+
+      if (filters.createdRange === "this_month") {
+        if (!createdAtDate) return false;
+        return (
+          createdAtDate.getFullYear() === now.getFullYear() &&
+          createdAtDate.getMonth() === now.getMonth()
+        );
+      }
+
+      if (filters.createdRange === "custom") {
+        if (!createdAtDate) return false;
+        if (filters.createdFrom) {
+          const fromDate = new Date(`${filters.createdFrom}T00:00:00`);
+          if (createdAtDate < fromDate) return false;
+        }
+        if (filters.createdTo) {
+          const toDate = new Date(`${filters.createdTo}T23:59:59.999`);
+          if (createdAtDate > toDate) return false;
+        }
+      }
+
+      return true;
+    });
+  }
+
+  return quotes;
 }
 
 export async function getQuoteReportStats(businessId: string): Promise<QuoteReportStats> {
@@ -334,6 +411,7 @@ export async function createQuote(input: QuoteFormInput) {
     client_id: input.client_id,
     address_id: clean(input.address_id),
     title: input.title.trim(),
+    status: input.status ?? "draft",
     frequency: input.frequency && input.frequency !== "none" ? input.frequency : null,
     valid_until: clean(input.valid_until),
     message_to_client: clean(input.message_to_client),

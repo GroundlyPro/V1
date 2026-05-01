@@ -1,6 +1,7 @@
 import {
   addDays,
   differenceInCalendarDays,
+  eachMonthOfInterval,
   endOfDay,
   endOfMonth,
   endOfYear,
@@ -35,7 +36,7 @@ export type ReportMetric = {
 };
 
 export type RevenueMonth = {
-  month: string;
+  label: string;
   value: number;
 };
 
@@ -111,6 +112,11 @@ function average(values: number[]) {
   return Math.round(values.reduce((sum, v) => sum + v, 0) / values.length);
 }
 
+function averageMoney(values: number[]) {
+  if (values.length === 0) return 0;
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
 function isRecurringJob(job: { type: string; frequency: string | null }) {
   const type = job.type.toLowerCase();
   const frequency = job.frequency?.toLowerCase() ?? "";
@@ -131,6 +137,42 @@ function toNamedValues(map: Map<string, number>, fallback: string, limit = 5) {
 
 function validCustomDate(value: string | null | undefined) {
   return value && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : null;
+}
+
+function normalizeRange(range: DateRange, fallbackDays = 28): Required<DateRange> {
+  const start = range.start ? startOfDay(range.start) : startOfDay(addDays(range.end, -(fallbackDays - 1)));
+  return { start, end: endOfDay(range.end) };
+}
+
+function buildEqualBuckets(range: DateRange, count: number, fallbackDays = 28) {
+  const normalized = normalizeRange(range, fallbackDays);
+  const totalDays = Math.max(differenceInCalendarDays(normalized.end, normalized.start) + 1, 1);
+
+  return Array.from({ length: count }, (_, index) => {
+    const startOffset = Math.floor((index * totalDays) / count);
+    const nextOffset = Math.floor(((index + 1) * totalDays) / count);
+    const bucketStart = startOfDay(addDays(normalized.start, startOffset));
+    const bucketEnd = endOfDay(addDays(normalized.start, Math.max(nextOffset - 1, startOffset)));
+    const sameDay = differenceInCalendarDays(bucketEnd, bucketStart) === 0;
+
+    return {
+      label: sameDay
+        ? format(bucketStart, "MMM d")
+        : `${format(bucketStart, "MMM d")} - ${format(bucketEnd, "MMM d")}`,
+      start: bucketStart,
+      end: bucketEnd,
+    };
+  });
+}
+
+function inBucket(value: string | null | undefined, bucket: { start: Date; end: Date }) {
+  if (!value) return false;
+  const date = new Date(value);
+  return date >= bucket.start && date <= bucket.end;
+}
+
+function getRevenueSeriesRange(range: DateRange) {
+  return range.start ? range : { start: startOfMonth(addDays(range.end, -335)), end: range.end };
 }
 
 function computeReportRange(now: Date, input: SectionInput): DateRange {
@@ -236,7 +278,7 @@ export async function getReportsOverview(
     applySince(
       supabase
         .from("jobs")
-        .select("id, address_id, quote_id, total_price, type, frequency, created_at, start_date, status")
+        .select("id, address_id, quote_id, total_price, total_cost, type, frequency, created_at, start_date, status")
         .eq("business_id", businessId),
       "created_at",
       dbFetchSince
@@ -244,7 +286,7 @@ export async function getReportsOverview(
     // No date filter on invoices — cashflow receivables needs all open invoices regardless of issue date
     supabase
       .from("invoices")
-      .select("id, client_id, total, balance, amount_paid, issue_date, due_date, paid_at, payment_method, status")
+      .select("id, client_id, job_id, total, balance, amount_paid, issue_date, due_date, paid_at, payment_method, status")
       .eq("business_id", businessId),
     applySince(
       supabase
@@ -281,6 +323,7 @@ export async function getReportsOverview(
   const invoices = invoicesResult.data ?? [];
   const payments = paymentsResult.data ?? [];
   const visits = visitsResult.data ?? [];
+  const addresses = addressesResult.data ?? [];
 
   // ── Overview ──────────────────────────────────────────────────────────
   const newLeads = clients.filter((c) => inRange(c.created_at, overviewRange)).length;
@@ -302,24 +345,52 @@ export async function getReportsOverview(
   const overviewQuoteConversionRate = percent(convertedQuotes, Math.max(sentQuotesInOverview.length, 1));
 
   // ── Revenue ───────────────────────────────────────────────────────────
-  const revenueByMonth = Array.from({ length: 12 }, (_, i) => ({
-    month: format(new Date(now.getFullYear(), i, 1), "MMM"),
+  const revenueSeriesRange = getRevenueSeriesRange(revenueRange);
+  const revenueByMonth = eachMonthOfInterval({
+    start: startOfMonth(revenueSeriesRange.start!),
+    end: startOfMonth(revenueSeriesRange.end),
+  }).map((monthDate) => ({
+    label: format(monthDate, "MMM"),
     value: 0,
+    monthKey: format(monthDate, "yyyy-MM"),
   }));
-  for (const payment of payments) {
+  const revenueSeriesIndex = new Map(revenueByMonth.map((point, index) => [point.monthKey, index]));
+
+  for (const payment of payments.filter((entry) => inRange(entry.paid_at, revenueRange))) {
     if (!payment.paid_at) continue;
-    revenueByMonth[new Date(payment.paid_at).getMonth()].value += moneyValue(payment.amount);
+    const monthKey = format(new Date(payment.paid_at), "yyyy-MM");
+    const index = revenueSeriesIndex.get(monthKey);
+    if (index !== undefined) revenueByMonth[index].value += moneyValue(payment.amount);
   }
 
-  const sourceCounts = new Map<string, number>();
-  for (const r of requests.filter((r) => inRange(r.created_at, revenueRange))) {
-    addToMap(sourceCounts, r.source || "Unknown", 1);
+  const requestSourceByQuoteId = new Map<string, string>();
+  const requestSourceByJobId = new Map<string, string>();
+  for (const request of requests) {
+    const source = request.source || "Unknown";
+    if (request.converted_to_quote_id) requestSourceByQuoteId.set(request.converted_to_quote_id, source);
+    if (request.converted_to_job_id) requestSourceByJobId.set(request.converted_to_job_id, source);
   }
 
-  const addressCities = new Map((addressesResult.data ?? []).map((a) => [a.id, a.city]));
+  const jobsById = new Map(jobs.map((job) => [job.id, job]));
+  const invoicesById = new Map(invoices.map((invoice) => [invoice.id, invoice]));
+  const addressCities = new Map(addresses.map((address) => [address.id, address.city]));
+  const sourceRevenue = new Map<string, number>();
   const cityRevenue = new Map<string, number>();
-  for (const j of jobs.filter((j) => inRange(j.created_at, revenueRange))) {
-    addToMap(cityRevenue, addressCities.get(j.address_id ?? "") ?? "Unmapped", moneyValue(j.total_price));
+
+  for (const payment of payments.filter((entry) => inRange(entry.paid_at, revenueRange))) {
+    const invoice = invoicesById.get(payment.invoice_id);
+    const job = invoice?.job_id ? jobsById.get(invoice.job_id) : undefined;
+    const source =
+      (job?.quote_id ? requestSourceByQuoteId.get(job.quote_id) : undefined) ??
+      (job ? requestSourceByJobId.get(job.id) : undefined) ??
+      "Unknown";
+
+    addToMap(sourceRevenue, source, moneyValue(payment.amount));
+
+    if (job) {
+      const city = addressCities.get(job.address_id ?? "") ?? "Unmapped";
+      addToMap(cityRevenue, city, moneyValue(payment.amount));
+    }
   }
 
   // ── Cashflow ──────────────────────────────────────────────────────────
@@ -328,9 +399,11 @@ export async function getReportsOverview(
   const clientsOwing = new Set(
     openInvoices.filter((i) => moneyValue(i.balance) > 0).map((i) => i.client_id)
   ).size;
-  const projectedIncome = jobs
-    .filter((j) => j.start_date && new Date(j.start_date) >= now && j.status !== "cancelled")
-    .reduce((sum, j) => sum + moneyValue(j.total_price), 0);
+  const futureJobs = jobs.filter(
+    (j) => j.start_date && new Date(j.start_date) >= now && j.status !== "cancelled"
+  );
+  const projectedIncome = futureJobs.reduce((sum, j) => sum + moneyValue(j.total_price), 0);
+  const upcomingPayouts = futureJobs.reduce((sum, j) => sum + moneyValue(j.total_cost), 0);
   const dueToday = openInvoices
     .filter((i) => i.due_date === format(now, "yyyy-MM-dd"))
     .reduce((sum, i) => sum + moneyValue(i.balance), 0);
@@ -350,9 +423,29 @@ export async function getReportsOverview(
   }
 
   // ── Leads ─────────────────────────────────────────────────────────────
+  const leadConversionDays = average(
+    requests
+      .filter((request) => inRange(request.created_at, leadsRange))
+      .map((request) => {
+        const quoteDate = request.converted_to_quote_id
+          ? quotes.find((quote) => quote.id === request.converted_to_quote_id)?.created_at ?? null
+          : null;
+        const jobDate = request.converted_to_job_id
+          ? jobsById.get(request.converted_to_job_id)?.created_at ?? null
+          : null;
+        const conversionDate = [quoteDate, jobDate]
+          .filter((value): value is string => Boolean(value))
+          .sort()[0];
+
+        return conversionDate
+          ? differenceInCalendarDays(new Date(conversionDate), new Date(request.created_at))
+          : null;
+      })
+      .filter((value): value is number => value !== null)
+  );
   const quoteApprovalDays = average(
     quotes
-      .filter((q) => q.sent_at && q.approved_at)
+      .filter((q) => q.sent_at && q.approved_at && inRange(q.approved_at, leadsRange))
       .map((q) => differenceInCalendarDays(new Date(q.approved_at!), new Date(q.sent_at!)))
   );
   const convertedRequestsInLeads = requests.filter(
@@ -363,34 +456,29 @@ export async function getReportsOverview(
   const leadsWithJob = jobs.filter((j) => inRange(j.created_at, leadsRange) && j.quote_id);
   const leadsQuoteConversionRate = percent(approvedQuotesInLeads.length, Math.max(sentQuotesInLeads.length, 1));
 
-  const quoteValue: QuoteValuePoint[] = ["Week 1", "Week 2", "Week 3", "Week 4"].map((label, index) => {
-    const startDay = index * 7 + 1;
-    const endDay = index === 3 ? 31 : startDay + 6;
-    const inWeek = (value: string | null) => {
-      if (!value) return false;
-      const d = new Date(value);
-      return d.getMonth() === now.getMonth() && d.getDate() >= startDay && d.getDate() <= endDay;
-    };
-    return {
-      label,
-      sent: quotes.filter((q) => inWeek(q.sent_at)).reduce((sum, q) => sum + moneyValue(q.total), 0),
-      converted: quotes.filter((q) => inWeek(q.approved_at)).reduce((sum, q) => sum + moneyValue(q.total), 0),
-    };
-  });
+  const leadBuckets = buildEqualBuckets(leadsRange, 4);
+  const quoteValue: QuoteValuePoint[] = leadBuckets.map((bucket) => ({
+    label: bucket.label,
+    sent: quotes
+      .filter((quote) => inBucket(quote.sent_at, bucket))
+      .reduce((sum, quote) => sum + moneyValue(quote.total), 0),
+    converted: quotes
+      .filter((quote) => inBucket(quote.approved_at, bucket))
+      .reduce((sum, quote) => sum + moneyValue(quote.total), 0),
+  }));
 
   // ── Jobs ──────────────────────────────────────────────────────────────
-  const jobById = new Map(jobs.map((j) => [j.id, j]));
-  const scheduledValue = ["This week", "Next week", "Week 3", "Week 4"].map((label, index) => {
-    const lower = index * 7;
-    const upper = lower + 7;
+  const scheduledValue = buildEqualBuckets(
+    { start: startOfDay(now), end: endOfDay(addDays(now, 27)) },
+    4
+  ).map((bucket) => {
     const value = visits
       .filter((v) => {
         if (!v.scheduled_date) return false;
-        const days = differenceInCalendarDays(new Date(v.scheduled_date), now);
-        return days >= lower && days < upper;
+        return inBucket(`${v.scheduled_date}T12:00:00`, bucket);
       })
-      .reduce((sum, v) => sum + moneyValue(jobById.get(v.job_id)?.total_price), 0);
-    return { label, value };
+      .reduce((sum, v) => sum + moneyValue(jobsById.get(v.job_id)?.total_price), 0);
+    return { label: bucket.label, value };
   });
 
   const periodJobs = jobs.filter((j) => inRange(j.created_at, jobsRange));
@@ -406,15 +494,15 @@ export async function getReportsOverview(
       { label: "Converted quotes", value: String(convertedQuotes), deltaLabel: `${overviewQuoteConversionRate}%`, href: "/quotes" },
       { label: "New one-off jobs", value: String(newOneOffJobs), deltaLabel: `${percent(newOneOffJobs, Math.max(newJobs.length, 1))}%`, href: "/jobs" },
       { label: "New recurring jobs", value: String(newRecurringJobs), deltaLabel: `${percent(newRecurringJobs, Math.max(newJobs.length, 1))}%`, href: "/jobs" },
-      { label: "Invoiced value", value: `$${Math.round(invoicedValue).toLocaleString("en-US")}`, deltaLabel: "month", href: "/invoices" },
+      { label: "Invoiced value", value: `$${Math.round(invoicedValue).toLocaleString("en-US")}`, deltaLabel: "selected", href: "/invoices" },
     ],
-    revenueByMonth,
-    revenueByLeadSource: toNamedValues(sourceCounts, "No source data", 6),
+    revenueByMonth: revenueByMonth.map(({ label, value }) => ({ label, value })),
+    revenueByLeadSource: toNamedValues(sourceRevenue, "No attributed revenue", 6),
     revenueHeatmap: toNamedValues(cityRevenue, "No mapped revenue", 6),
     cashflow: {
       receivables,
       clientsOwing,
-      upcomingPayouts: 0,
+      upcomingPayouts,
       projectedIncome,
       dueToday,
       dueUnderSevenDays,
@@ -422,7 +510,7 @@ export async function getReportsOverview(
     },
     paymentMethods: toNamedValues(methodTotals, "No payments", 5),
     leadConversion: {
-      leadConversionDays: null,
+      leadConversionDays,
       quoteApprovalDays,
       quoteConversionRate: leadsQuoteConversionRate,
       funnel: [
@@ -437,8 +525,8 @@ export async function getReportsOverview(
       scheduledValue,
       recurringValue,
       oneOffValue,
-      averageOneOffJobValue: oneOffJobs.length ? oneOffValue / oneOffJobs.length : 0,
-      averageRecurringJobValue: recurringJobs.length ? recurringValue / recurringJobs.length : 0,
+      averageOneOffJobValue: averageMoney(oneOffJobs.map((job) => moneyValue(job.total_price))),
+      averageRecurringJobValue: averageMoney(recurringJobs.map((job) => moneyValue(job.total_price))),
       monthlyRecurringJobValue: recurringValue,
     },
   };

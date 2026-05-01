@@ -364,6 +364,20 @@ export async function deleteClient(id: string) {
   if (error) throw error;
 }
 
+export async function updateClientStatus(
+  id: string,
+  status: "active" | "lead" | "inactive"
+) {
+  const { supabase, profile } = await getMyProfile();
+  const { error } = await supabase
+    .from("clients")
+    .update({ status })
+    .eq("id", id)
+    .eq("business_id", profile.business_id);
+
+  if (error) throw error;
+}
+
 export async function addClientAddress(clientId: string, input: ClientAddressInput) {
   const { supabase, profile } = await getMyProfile();
   const businessId = profile.business_id;
