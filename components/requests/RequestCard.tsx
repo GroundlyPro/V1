@@ -60,7 +60,7 @@ export function RequestCard({
 
   return (
     <TableRow>
-      <TableCell className="px-4 whitespace-normal">
+      <TableCell>
         <div className="space-y-1">
           <Link href={`/requests/${request.id}`} className="font-semibold text-gray-900 hover:text-brand">
             {request.first_name} {request.last_name}
@@ -71,15 +71,17 @@ export function RequestCard({
         </div>
       </TableCell>
 
-      <TableCell className="whitespace-normal text-sm text-muted-foreground">
-        {request.address || "No address"}
+      <TableCell>
+        <div className="truncate text-sm text-[#4a6070]" title={request.address || "No address"}>
+          {request.address || "No address"}
+        </div>
       </TableCell>
 
-      <TableCell className="text-sm text-muted-foreground">
+      <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
         {formatCreatedDate(request.created_at)}
       </TableCell>
 
-      <TableCell className="w-[180px]">
+      <TableCell>
         <Select
           value={status}
           disabled={statusPending}
@@ -112,7 +114,7 @@ export function RequestCard({
         </Select>
       </TableCell>
 
-      <TableCell className="w-[220px]">
+      <TableCell>
         <Select
           value={assignedTo}
           disabled={assigneePending}
@@ -146,7 +148,7 @@ export function RequestCard({
         </Select>
       </TableCell>
 
-      <TableCell className="px-4 text-right">
+      <TableCell className="text-right">
         <Link href={`/requests/${request.id}`} className="text-sm font-medium text-[#007bb8] hover:underline">
           View details
         </Link>

@@ -1,10 +1,12 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { Bell, BriefcaseBusiness, Building2, CreditCard, Users } from "lucide-react";
+import { Bell, BriefcaseBusiness, Building2, CreditCard, Plug, Users } from "lucide-react";
 import { BusinessProfileForm, type BusinessProfileValues } from "@/components/settings/BusinessProfileForm";
 import { TeamMembersTab } from "@/components/settings/TeamMembersTab";
 import { ServicesTab } from "@/components/settings/ServicesTab";
 import { NotificationsTab, type NotificationValues } from "@/components/settings/NotificationsTab";
+import { IntegrationsTab, type IntegrationStatus } from "@/components/settings/IntegrationsTab";
+import { isProviderConnected, getSavedFields, type StoredIntegrationsConfig } from "@/lib/integrations";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -204,6 +206,42 @@ export default async function SettingsPage() {
     revalidatePath("/settings");
   }
 
+  async function saveIntegration(provider: string, config: Record<string, string>) {
+    "use server";
+
+    const serverSupabase = await createClient();
+    const {
+      data: { user: currentUser },
+    } = await serverSupabase.auth.getUser();
+    if (!currentUser) return { error: "Unauthorized" };
+
+    const { data: currentProfile } = await serverSupabase
+      .from("users")
+      .select("business_id")
+      .eq("auth_user_id", currentUser.id)
+      .maybeSingle();
+    if (!currentProfile) return { error: "Profile not found" };
+
+    const { data: biz } = await serverSupabase
+      .from("businesses")
+      .select("integrations_config")
+      .eq("id", currentProfile.business_id)
+      .single();
+
+    const existing = ((biz as unknown as { integrations_config?: unknown })?.integrations_config ?? {}) as Record<string, Record<string, string>>;
+    const providerKey = provider as keyof typeof existing;
+    const merged = { ...existing, [providerKey]: { ...(existing[providerKey] ?? {}), ...config } };
+
+    const { error } = await serverSupabase
+      .from("businesses")
+      .update({ integrations_config: merged } as never)
+      .eq("id", currentProfile.business_id);
+
+    if (error) return { error: error.message };
+    revalidatePath("/settings");
+    return {};
+  }
+
   async function updateNotifications(values: NotificationValues) {
     "use server";
 
@@ -250,6 +288,18 @@ export default async function SettingsPage() {
     zip: business.zip ?? "",
   };
 
+  const storedIntegrations = ((business as unknown as { integrations_config?: unknown })?.integrations_config ?? {}) as StoredIntegrationsConfig;
+
+  const integrationStatus: IntegrationStatus = {
+    gmail: isProviderConnected("gmail", storedIntegrations),
+    stripe: isProviderConnected("stripe", storedIntegrations),
+    quo: isProviderConnected("quo", storedIntegrations),
+    googleCalendar: isProviderConnected("google_calendar", storedIntegrations),
+    resend: isProviderConnected("resend", storedIntegrations),
+  };
+
+  const integrationSavedFields = getSavedFields(storedIntegrations);
+
   return (
     <div className="mx-auto max-w-7xl space-y-6">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
@@ -265,7 +315,7 @@ export default async function SettingsPage() {
       </div>
 
       <Tabs defaultValue="profile" className="gap-5">
-        <TabsList className="grid min-h-11 w-full grid-cols-2 gap-1 bg-[#eef4f8] p-1 sm:grid-cols-5">
+        <TabsList className="grid min-h-11 w-full grid-cols-2 gap-1 bg-[#eef4f8] p-1 sm:grid-cols-3 lg:grid-cols-6">
           <TabsTrigger value="profile" className="min-h-9 gap-2">
             <Building2 className="size-4" />
             Profile
@@ -285,6 +335,10 @@ export default async function SettingsPage() {
           <TabsTrigger value="notifications" className="min-h-9 gap-2">
             <Bell className="size-4" />
             Alerts
+          </TabsTrigger>
+          <TabsTrigger value="integrations" className="min-h-9 gap-2">
+            <Plug className="size-4" />
+            Integrations
           </TabsTrigger>
         </TabsList>
 
@@ -361,6 +415,22 @@ export default async function SettingsPage() {
                   job_reminder_1h: business.job_reminder_1h ?? true,
                 }}
                 action={updateNotifications}
+              />
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="integrations">
+          <Card>
+            <CardHeader>
+              <CardTitle>Integrations</CardTitle>
+              <CardDescription>Set up external services for email, reminders, payments, SMS, and calendar sync.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <IntegrationsTab
+                status={integrationStatus}
+                savedFields={integrationSavedFields}
+                saveAction={saveIntegration}
               />
             </CardContent>
           </Card>

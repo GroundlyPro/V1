@@ -16,8 +16,8 @@ type BusinessRow = Database["public"]["Tables"]["businesses"]["Row"];
 type UserRow = Database["public"]["Tables"]["users"]["Row"];
 
 export type RequestStatus = "new" | "in_review" | "converted" | "declined";
-export type RequestFilter = "all" | RequestStatus;
-export type RequestDateFilter = "all" | "today" | "this_week" | "this_month" | "custom";
+export type RequestFilter = "all" | "open" | RequestStatus;
+export type RequestDateFilter = "all" | "today" | "this_week" | "this_month" | "past_30_days" | "custom";
 
 export type RequestListItem = Pick<
   RequestRow,
@@ -65,6 +65,20 @@ export interface ManualRequestInput {
   image_url?: string;
 }
 
+export interface UpdateRequestInput {
+  first_name: string;
+  last_name: string;
+  email?: string;
+  phone?: string;
+  address?: string;
+  service_type?: string;
+  requested_on?: string;
+  reminder_at?: string;
+  message?: string;
+  assigned_to?: string;
+  image_url?: string;
+}
+
 export type RequestClientOption = Pick<
   ClientRow,
   "id" | "first_name" | "last_name" | "company_name" | "email" | "phone"
@@ -89,6 +103,19 @@ export interface RequestFilters {
   createdRange?: RequestDateFilter;
   createdFrom?: string;
   createdTo?: string;
+}
+
+export interface RequestDashboardStats {
+  overview: Record<RequestStatus, number>;
+  newRequests: {
+    count: number;
+    delta: number;
+  };
+  conversionRate: {
+    value: number;
+    delta: number;
+  };
+  unassignedOpen: number;
 }
 
 function startOfDay(value: Date) {
@@ -184,7 +211,9 @@ export async function getRequests(
     .eq("business_id", businessId)
     .order("created_at", { ascending: false });
 
-  if (filters.status && filters.status !== "all") {
+  if (filters.status === "open") {
+    query = query.in("status", ["new", "in_review"]);
+  } else if (filters.status && filters.status !== "all") {
     query = query.eq("status", filters.status);
   }
 
@@ -232,6 +261,10 @@ export async function getRequests(
       .lt("created_at", nextMonthStart.toISOString());
   }
 
+  if (filters.createdRange === "past_30_days") {
+    query = query.gte("created_at", addDays(now, -30).toISOString()).lt("created_at", now.toISOString());
+  }
+
   if (filters.createdRange === "custom") {
     if (filters.createdFrom) {
       query = query.gte("created_at", startOfDay(new Date(filters.createdFrom)).toISOString());
@@ -264,6 +297,67 @@ export async function getRequest(id: string, businessId: string): Promise<Reques
   return data as RequestDetail | null;
 }
 
+export async function getRequestDashboardStats(businessId: string): Promise<RequestDashboardStats> {
+  const supabase = await createSupabaseClient();
+  const { data, error } = await supabase
+    .from("requests")
+    .select("id, status, created_at, assigned_to")
+    .eq("business_id", businessId);
+
+  if (error) throw error;
+
+  const requests = data ?? [];
+  const now = new Date();
+  const currentStart = addDays(now, -30);
+  const previousStart = addDays(now, -60);
+  const inRange = (value: string | null, from: Date, to: Date) => {
+    if (!value) return false;
+    const date = new Date(value);
+    return date >= from && date < to;
+  };
+  const percentChange = (current: number, previous: number) => {
+    if (previous === 0) return current > 0 ? 100 : 0;
+    return Math.round(((current - previous) / previous) * 100);
+  };
+
+  const overview: RequestDashboardStats["overview"] = {
+    new: 0,
+    in_review: 0,
+    converted: 0,
+    declined: 0,
+  };
+
+  for (const request of requests) {
+    if (request.status in overview) {
+      overview[request.status as RequestStatus] += 1;
+    }
+  }
+
+  const currentRequests = requests.filter((request) => inRange(request.created_at, currentStart, now));
+  const previousRequests = requests.filter((request) => inRange(request.created_at, previousStart, currentStart));
+  const currentConverted = currentRequests.filter((request) => request.status === "converted").length;
+  const previousConverted = previousRequests.filter((request) => request.status === "converted").length;
+  const currentConversionRate =
+    currentRequests.length > 0 ? Math.round((currentConverted / currentRequests.length) * 100) : 0;
+  const previousConversionRate =
+    previousRequests.length > 0 ? Math.round((previousConverted / previousRequests.length) * 100) : 0;
+
+  return {
+    overview,
+    newRequests: {
+      count: currentRequests.length,
+      delta: percentChange(currentRequests.length, previousRequests.length),
+    },
+    conversionRate: {
+      value: currentConversionRate,
+      delta: currentConversionRate - previousConversionRate,
+    },
+    unassignedOpen: requests.filter(
+      (request) => !request.assigned_to && (request.status === "new" || request.status === "in_review")
+    ).length,
+  };
+}
+
 export async function updateRequestStatus(id: string, status: RequestStatus) {
   const { supabase, profile } = await getMyProfile();
   const update: RequestUpdate = { status };
@@ -281,6 +375,31 @@ export async function updateRequestAssignee(id: string, assignedTo?: string | nu
   const { supabase, profile } = await getMyProfile();
   const update: RequestUpdate = {
     assigned_to: assignedTo === UNASSIGNED ? null : clean(assignedTo),
+  };
+
+  const { error } = await supabase
+    .from("requests")
+    .update(update)
+    .eq("id", id)
+    .eq("business_id", profile.business_id);
+
+  if (error) throw error;
+}
+
+export async function updateRequest(id: string, input: UpdateRequestInput) {
+  const { supabase, profile } = await getMyProfile();
+  const update: RequestUpdate = {
+    first_name: input.first_name.trim(),
+    last_name: input.last_name.trim(),
+    email: clean(input.email),
+    phone: clean(input.phone),
+    address: clean(input.address),
+    service_type: clean(input.service_type),
+    requested_on: clean(input.requested_on),
+    reminder_at: toIsoDateTime(input.reminder_at),
+    message: clean(input.message),
+    assigned_to: input.assigned_to === UNASSIGNED ? null : clean(input.assigned_to),
+    image_url: clean(input.image_url),
   };
 
   const { error } = await supabase

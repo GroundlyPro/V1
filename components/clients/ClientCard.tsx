@@ -5,13 +5,6 @@ import { ClientStatusSelect } from "@/components/clients/ClientStatusSelect";
 import { TableCell, TableRow } from "@/components/ui/table";
 import type { ClientListItem } from "@/lib/supabase/queries/clients";
 
-function formatCurrency(value: number | null) {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-  }).format(value ?? 0);
-}
-
 function formatAddress(client: ClientListItem) {
   const primary =
     client.client_addresses.find((address) => address.is_primary) ??
@@ -20,6 +13,15 @@ function formatAddress(client: ClientListItem) {
   if (!primary) return "No address";
 
   return [primary.street1, primary.city, primary.state].filter(Boolean).join(", ");
+}
+
+function formatDate(value: string | null) {
+  if (!value) return "Not set";
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(new Date(value));
 }
 
 export function ClientCard({ client }: { client: ClientListItem }) {
@@ -54,7 +56,9 @@ export function ClientCard({ client }: { client: ClientListItem }) {
           <span className="block truncate">{formatAddress(client)}</span>
         </span>
       </TableCell>
-      <TableCell className="w-[12%] whitespace-nowrap">{formatCurrency(client.balance)}</TableCell>
+      <TableCell className="w-[12%] whitespace-nowrap text-sm text-muted-foreground">
+        {formatDate(client.created_at)}
+      </TableCell>
       <TableCell className="w-[12%] whitespace-nowrap">
         <ClientStatusSelect
           clientId={client.id}

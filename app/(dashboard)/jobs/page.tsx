@@ -1,13 +1,15 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Plus } from "lucide-react";
+import { ArrowUpRight, BriefcaseBusiness, CalendarClock, CircleHelp, Plus, UserRoundX } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import {
+  getJobReportStats,
   getJobs,
   updateJobAssignee,
   updateJobStatus,
   type JobFilters,
   type JobListItem,
+  type JobReportStats,
   type JobStatus,
 } from "@/lib/supabase/queries/jobs";
 import { revalidatePath } from "next/cache";
@@ -47,6 +49,14 @@ function formatCurrency(value: number | null) {
     style: "currency",
     currency: "USD",
   }).format(value ?? 0);
+}
+
+function formatCompactCurrency(value: number) {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  }).format(value);
 }
 
 function nextVisit(job: JobListItem) {
@@ -99,6 +109,109 @@ function formatCreatedAt(value: string | null) {
   }).format(new Date(value));
 }
 
+function JobReportCards({ report }: { report: JobReportStats }) {
+  const overviewItems: { label: string; status: JobStatus; value: number; color: string }[] = [
+    { label: "Active", status: "active", value: report.overview.active, color: "bg-[#3f8f2f]" },
+    {
+      label: "In progress",
+      status: "in_progress",
+      value: report.overview.in_progress,
+      color: "bg-[#007bb8]",
+    },
+    { label: "Completed", status: "completed", value: report.overview.completed, color: "bg-[#486778]" },
+    { label: "Closed", status: "closed", value: report.overview.closed, color: "bg-[#6b7280]" },
+    { label: "Cancelled", status: "cancelled", value: report.overview.cancelled, color: "bg-[#d34a35]" },
+  ];
+
+  return (
+    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+      <Card className="rounded-lg border-[#d6e0e7] shadow-none">
+        <CardHeader className="pb-0">
+          <CardTitle className="text-lg font-bold text-[#063044]">Overview</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-1.5">
+            {overviewItems.map((item) => (
+              <Link
+                key={item.status}
+                href={`/jobs?status=${item.status}`}
+                className="flex items-center gap-2 text-sm text-[#12384a] hover:text-brand"
+              >
+                <span className={`size-2.5 rounded-full ${item.color}`} />
+                <span>
+                  {item.label} ({item.value})
+                </span>
+              </Link>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="rounded-lg border-[#d6e0e7] shadow-none">
+        <CardHeader className="pb-0">
+          <div className="flex items-start justify-between gap-3">
+            <CardTitle className="text-lg font-bold text-[#063044]">Open work</CardTitle>
+            <div className="flex items-center gap-3 text-[#12384a]">
+              <CircleHelp className="size-4" aria-label="Active and in-progress jobs" />
+              <Link href="/jobs?status=active" aria-label="Open active jobs">
+                <ArrowUpRight className="size-4" />
+              </Link>
+            </div>
+          </div>
+          <CardDescription className="text-sm text-[#365c6e]">Active + in progress</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center gap-3">
+            <BriefcaseBusiness className="size-5 text-[#007bb8]" />
+            <span className="text-3xl font-bold tabular-nums text-[#063044]">{report.open.count}</span>
+          </div>
+          <p className="mt-1 text-sm text-[#365c6e]">{formatCompactCurrency(report.open.value)}</p>
+        </CardContent>
+      </Card>
+
+      <Card className="rounded-lg border-[#d6e0e7] shadow-none">
+        <CardHeader className="pb-0">
+          <div className="flex items-start justify-between gap-3">
+            <CardTitle className="text-lg font-bold text-[#063044]">Scheduled</CardTitle>
+            <Link href="/schedule" aria-label="Open schedule" className="text-[#12384a]">
+              <ArrowUpRight className="size-4" />
+            </Link>
+          </div>
+          <CardDescription className="text-sm text-[#365c6e]">Jobs with upcoming visits</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center gap-3">
+            <CalendarClock className="size-5 text-[#007bb8]" />
+            <span className="text-3xl font-bold tabular-nums text-[#063044]">{report.scheduled.count}</span>
+          </div>
+          <p className="mt-1 text-sm text-[#365c6e]">{report.scheduled.next7Days} in next 7 days</p>
+        </CardContent>
+      </Card>
+
+      <Card className="rounded-lg border-[#d6e0e7] shadow-none">
+        <CardHeader className="pb-0">
+          <div className="flex items-start justify-between gap-3">
+            <CardTitle className="text-lg font-bold text-[#063044]">Needs assignment</CardTitle>
+            <Link href="/jobs?assignedTo=unassigned" aria-label="Open unassigned jobs" className="text-[#12384a]">
+              <ArrowUpRight className="size-4" />
+            </Link>
+          </div>
+          <CardDescription className="text-sm text-[#365c6e]">Open jobs without a team member</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center gap-3">
+            <UserRoundX className="size-5 text-[#d34a35]" />
+            <span className="text-3xl font-bold tabular-nums text-[#063044]">{report.unassigned.count}</span>
+          </div>
+          <p className="mt-1 text-sm text-[#365c6e]">
+            {report.completed.count} completed, {formatCompactCurrency(report.completed.value)}
+          </p>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 export default async function JobsPage({ searchParams }: JobsPageProps) {
   const supabase = await createClient();
   const {
@@ -121,7 +234,7 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
   const createdRange = params.createdRange ?? "all";
   const createdFrom = params.createdFrom ?? "";
   const createdTo = params.createdTo ?? "";
-  const [{ data: teamMembers }, jobs] = await Promise.all([
+  const [{ data: teamMembers }, jobs, report] = await Promise.all([
     supabase
       .from("users")
       .select("id, first_name, last_name")
@@ -136,6 +249,7 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
       createdFrom,
       createdTo,
     }),
+    getJobReportStats(profile.business_id),
   ]);
 
   async function updateStatusAction(jobId: string, nextStatus: JobStatus) {
@@ -169,6 +283,8 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
         </Link>
       </div>
 
+      <JobReportCards report={report} />
+
       <Card>
         <CardHeader>
           <CardTitle>Job Board</CardTitle>
@@ -197,61 +313,65 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
               </p>
             </div>
           ) : (
-            <Table className="min-w-[1120px]">
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-[14%]">Job</TableHead>
-                  <TableHead className="w-[14%]">Client</TableHead>
-                  <TableHead className="w-[18%]">Address</TableHead>
-                  <TableHead className="w-[14%]">Assignee</TableHead>
-                  <TableHead className="w-[14%]">Status</TableHead>
-                  <TableHead className="w-[10%]">Created at</TableHead>
-                  <TableHead className="w-[10%]">Next Visit</TableHead>
-                  <TableHead className="w-[6%]">Total Value</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {jobs.map((job) => (
-                  <TableRow key={job.id}>
-                    <TableCell>
-                      <Link href={`/jobs/${job.id}`} className="font-medium hover:text-brand">
-                        {job.title}
-                      </Link>
-                      <p className="text-xs text-muted-foreground">{job.job_number}</p>
-                    </TableCell>
-                    <TableCell>
-                      <div className="truncate text-sm text-[#1a2d3d]" title={clientName(job)}>
-                        {clientName(job)}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="truncate text-sm text-[#4a6070]" title={addressText(job)}>
-                        {addressText(job)}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <JobAssigneeSelect
-                        jobId={job.id}
-                        assignedUserId={primaryAssigneeId(job)}
-                        teamMembers={teamMembers ?? []}
-                        disabled={job.job_visits.length === 0}
-                        updateAction={updateAssigneeAction}
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <JobStatusSelect
-                        jobId={job.id}
-                        status={job.status as JobStatus}
-                        updateAction={updateStatusAction}
-                      />
-                    </TableCell>
-                    <TableCell className="text-sm">{formatCreatedAt(job.created_at)}</TableCell>
-                    <TableCell className="text-sm">{nextVisit(job)}</TableCell>
-                    <TableCell className="text-sm">{formatCurrency(job.total_price)}</TableCell>
+            <div className="overflow-x-auto">
+              <Table className="min-w-[1440px] table-fixed">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-[190px]">Job</TableHead>
+                    <TableHead className="w-[220px]">Client</TableHead>
+                    <TableHead className="w-[320px]">Address</TableHead>
+                    <TableHead className="w-[180px]">Assignee</TableHead>
+                    <TableHead className="w-[170px]">Status</TableHead>
+                    <TableHead className="w-[150px]">Created at</TableHead>
+                    <TableHead className="w-[160px]">Next Visit</TableHead>
+                    <TableHead className="w-[150px] text-right">Total Value</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {jobs.map((job) => (
+                    <TableRow key={job.id}>
+                      <TableCell>
+                        <Link href={`/jobs/${job.id}`} className="font-medium hover:text-brand">
+                          {job.title}
+                        </Link>
+                        <p className="text-xs text-muted-foreground">{job.job_number}</p>
+                      </TableCell>
+                      <TableCell>
+                        <div className="break-words text-sm text-[#1a2d3d]" title={clientName(job)}>
+                          {clientName(job)}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="line-clamp-2 break-words text-sm leading-5 text-[#4a6070]" title={addressText(job)}>
+                          {addressText(job)}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <JobAssigneeSelect
+                          jobId={job.id}
+                          assignedUserId={primaryAssigneeId(job)}
+                          teamMembers={teamMembers ?? []}
+                          disabled={job.job_visits.length === 0}
+                          updateAction={updateAssigneeAction}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <JobStatusSelect
+                          jobId={job.id}
+                          status={job.status as JobStatus}
+                          updateAction={updateStatusAction}
+                        />
+                      </TableCell>
+                      <TableCell className="text-sm">{formatCreatedAt(job.created_at)}</TableCell>
+                      <TableCell className="text-sm">{nextVisit(job)}</TableCell>
+                      <TableCell className="text-right text-sm tabular-nums">
+                        {formatCurrency(job.total_price)}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
           )}
         </CardContent>
       </Card>

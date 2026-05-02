@@ -54,7 +54,7 @@ export default async function ClientsPage({ searchParams }: ClientsPageProps) {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Clients</h1>
           <p className="text-sm text-muted-foreground">
-            Manage customer records, addresses, balances, and service history.
+            Manage customer records, addresses, and service history.
           </p>
         </div>
         <div className="flex flex-col gap-2 sm:flex-row">
@@ -123,7 +123,7 @@ export default async function ClientsPage({ searchParams }: ClientsPageProps) {
                   <TableHead className="w-[20%]">Name</TableHead>
                   <TableHead className="w-[24%]">Contact</TableHead>
                   <TableHead className="w-[28%]">Primary Address</TableHead>
-                  <TableHead className="w-[12%]">Balance</TableHead>
+                  <TableHead className="w-[12%]">Created at</TableHead>
                   <TableHead className="w-[12%]">Status</TableHead>
                   <TableHead className="w-[4%]">
                     <span className="sr-only">Actions</span>

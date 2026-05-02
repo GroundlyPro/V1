@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getQuote } from "@/lib/supabase/queries/quotes";
-import { getResend, getFromAddress, quoteEmailHtml } from "@/lib/resend";
+import { quoteEmailHtml } from "@/lib/resend";
+import { sendTransactionalEmail } from "@/lib/email";
+import { dbConfigToEmailIntegrations } from "@/lib/integrations";
 
 export async function POST(request: Request) {
   const supabase = await createClient();
@@ -36,6 +38,12 @@ export async function POST(request: Request) {
     .eq("id", profile.business_id)
     .single();
 
+  const { data: bizIntegrations } = await supabase
+    .from("businesses")
+    .select("integrations_config")
+    .eq("id", profile.business_id)
+    .single<{ integrations_config: unknown }>();
+
   const businessName = business?.name ?? "Your service provider";
   const clientName = quote.clients
     ? `${quote.clients.first_name} ${quote.clients.last_name}`
@@ -53,9 +61,8 @@ export async function POST(request: Request) {
   const total = lineItems.reduce((sum, li) => sum + (li.unit_price ?? 0) * (li.quantity ?? 1), 0);
 
   try {
-    const resend = getResend();
-    await resend.emails.send({
-      from: getFromAddress(),
+    await sendTransactionalEmail({
+      businessName,
       to: clientEmail,
       replyTo: business?.email ?? undefined,
       subject: `Quote from ${businessName}: ${quote.title}`,
@@ -67,6 +74,7 @@ export async function POST(request: Request) {
         validUntil: formatDate(quote.valid_until ?? null),
         message: quote.message_to_client ?? undefined,
       }),
+      integrations: dbConfigToEmailIntegrations(bizIntegrations?.integrations_config),
     });
   } catch (err) {
     return NextResponse.json(

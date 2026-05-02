@@ -294,16 +294,16 @@ export default async function QuotesPage({ searchParams }: QuotesPageProps) {
               </p>
             </div>
           ) : (
-            <Table className="table-fixed">
+            <Table className="min-w-[1040px] table-fixed">
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-[18%]">Quote</TableHead>
-                  <TableHead className="w-[16%]">Client</TableHead>
-                  <TableHead className="w-[22%]">Address</TableHead>
+                  <TableHead className="w-[15%]">Client</TableHead>
+                  <TableHead className="w-[21%]">Address</TableHead>
                   <TableHead className="w-[18%]">Status</TableHead>
-                  <TableHead className="w-[12%]">Created At</TableHead>
-                  <TableHead className="w-[10%]">Valid Until</TableHead>
-                  <TableHead className="w-[4%]">Total</TableHead>
+                  <TableHead className="w-[12%] whitespace-nowrap">Created At</TableHead>
+                  <TableHead className="w-[10%] whitespace-nowrap">Valid Until</TableHead>
+                  <TableHead className="w-[6%] min-w-24 whitespace-nowrap text-right">Total</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -335,9 +335,9 @@ export default async function QuotesPage({ searchParams }: QuotesPageProps) {
                         updateAction={updateStatusAction}
                       />
                     </TableCell>
-                    <TableCell>{formatDateTime(quote.created_at)}</TableCell>
-                    <TableCell>{formatDate(quote.valid_until)}</TableCell>
-                    <TableCell>{formatCurrency(quote.total)}</TableCell>
+                    <TableCell className="whitespace-nowrap">{formatDateTime(quote.created_at)}</TableCell>
+                    <TableCell className="whitespace-nowrap">{formatDate(quote.valid_until)}</TableCell>
+                    <TableCell className="whitespace-nowrap text-right">{formatCurrency(quote.total)}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>

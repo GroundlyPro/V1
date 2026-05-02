@@ -19,6 +19,25 @@ type ServiceRow = Database["public"]["Tables"]["services"]["Row"];
 
 export type JobStatus = "active" | "in_progress" | "completed" | "closed" | "cancelled";
 
+export interface JobReportStats {
+  overview: Record<JobStatus, number>;
+  open: {
+    count: number;
+    value: number;
+  };
+  scheduled: {
+    count: number;
+    next7Days: number;
+  };
+  unassigned: {
+    count: number;
+  };
+  completed: {
+    count: number;
+    value: number;
+  };
+}
+
 export type JobListItem = JobRow & {
   clients: Pick<ClientRow, "id" | "first_name" | "last_name" | "company_name"> | null;
   client_addresses: Pick<
@@ -305,6 +324,89 @@ export async function getJobs(
 
     return true;
   });
+}
+
+export async function getJobReportStats(businessId: string): Promise<JobReportStats> {
+  const supabase = await createSupabaseClient();
+  const { data, error } = await supabase
+    .from("jobs")
+    .select(
+      `
+      id,
+      status,
+      total_price,
+      job_visits(id, scheduled_date, status, visit_assignments(id, users(id)))
+    `
+    )
+    .eq("business_id", businessId);
+
+  if (error) throw error;
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const nextWeek = new Date(today);
+  nextWeek.setDate(today.getDate() + 7);
+
+  const stats: JobReportStats = {
+    overview: {
+      active: 0,
+      in_progress: 0,
+      completed: 0,
+      closed: 0,
+      cancelled: 0,
+    },
+    open: { count: 0, value: 0 },
+    scheduled: { count: 0, next7Days: 0 },
+    unassigned: { count: 0 },
+    completed: { count: 0, value: 0 },
+  };
+
+  for (const job of data ?? []) {
+    const status = job.status as JobStatus;
+    const totalPrice = toMoney(job.total_price);
+    const visits = job.job_visits ?? [];
+
+    if (status in stats.overview) {
+      stats.overview[status] += 1;
+    }
+
+    if (status === "active" || status === "in_progress") {
+      stats.open.count += 1;
+      stats.open.value += totalPrice;
+    }
+
+    if (status === "completed") {
+      stats.completed.count += 1;
+      stats.completed.value += totalPrice;
+    }
+
+    const scheduledVisits = visits.filter((visit) => visit.scheduled_date && visit.status !== "completed");
+    if (scheduledVisits.length > 0) {
+      stats.scheduled.count += 1;
+    }
+
+    if (
+      scheduledVisits.some((visit) => {
+        if (!visit.scheduled_date) return false;
+        const scheduledDate = new Date(`${visit.scheduled_date}T00:00:00`);
+        return scheduledDate >= today && scheduledDate <= nextWeek;
+      })
+    ) {
+      stats.scheduled.next7Days += 1;
+    }
+
+    const assignedUserIds = visits.flatMap((visit) =>
+      (visit.visit_assignments ?? [])
+        .map((assignment) => assignment.users?.id)
+        .filter((value): value is string => Boolean(value))
+    );
+
+    if ((status === "active" || status === "in_progress") && assignedUserIds.length === 0) {
+      stats.unassigned.count += 1;
+    }
+  }
+
+  return stats;
 }
 
 export async function getJob(id: string, businessId?: string): Promise<JobDetail | null> {

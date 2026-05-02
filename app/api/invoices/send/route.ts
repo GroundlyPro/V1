@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getInvoice } from "@/lib/supabase/queries/invoices";
-import { getResend, getFromAddress, invoiceEmailHtml } from "@/lib/resend";
+import { invoiceEmailHtml } from "@/lib/resend";
+import { sendTransactionalEmail } from "@/lib/email";
+import { dbConfigToEmailIntegrations } from "@/lib/integrations";
 
 export async function POST(request: Request) {
   const supabase = await createClient();
@@ -36,6 +38,12 @@ export async function POST(request: Request) {
     .eq("id", profile.business_id)
     .single();
 
+  const { data: bizIntegrations } = await supabase
+    .from("businesses")
+    .select("integrations_config")
+    .eq("id", profile.business_id)
+    .single<{ integrations_config: unknown }>();
+
   const businessName = business?.name ?? "Your service provider";
   const clientName = invoice.clients
     ? `${invoice.clients.first_name} ${invoice.clients.last_name}`
@@ -50,9 +58,8 @@ export async function POST(request: Request) {
   };
 
   try {
-    const resend = getResend();
-    await resend.emails.send({
-      from: getFromAddress(),
+    await sendTransactionalEmail({
+      businessName,
       to: clientEmail,
       replyTo: business?.email ?? undefined,
       subject: `Invoice ${invoice.invoice_number} from ${businessName}`,
@@ -63,6 +70,7 @@ export async function POST(request: Request) {
         totalAmount: formatCurrency(invoice.total),
         dueDate: formatDate(invoice.due_date),
       }),
+      integrations: dbConfigToEmailIntegrations(bizIntegrations?.integrations_config),
     });
   } catch (err) {
     return NextResponse.json(

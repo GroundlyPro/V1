@@ -49,8 +49,8 @@ Do not touch anything outside that file.
 | Auth | Supabase Auth | |
 | Forms | react-hook-form + Zod v4 | `z.coerce.number()` causes resolver type errors with hookform v7 — use `z.number()` and convert in `onChange` |
 | State | Zustand | Global UI state only |
-| Email | Resend | `lib/resend.ts` |
-| SMS | Twilio | `lib/twilio.ts` |
+| Email | Gmail API + Resend fallback | Gmail OAuth credentials can be stored in Settings → Integrations or env; templates in `lib/resend.ts`, provider routing in `lib/email.ts` |
+| SMS | Quo API | `lib/quo.ts` |
 | Payments | Stripe | `lib/stripe.ts` |
 | Deploy | Vercel | Auto-deploys from `main` branch |
 
@@ -164,7 +164,7 @@ V1-master/
 │
 ├── lib/
 │   ├── resend.ts                        ← Resend client + email HTML templates
-│   ├── twilio.ts                        ← Twilio client
+│   ├── quo.ts                           ← Quo SMS client
 │   ├── stripe.ts                        ← Stripe client
 │   └── supabase/
 │       ├── client.ts
@@ -208,7 +208,7 @@ V1-master/
 
 **Admin client** — Use `createAdminClient()` from `lib/supabase/admin.ts` for operations that bypass RLS (e.g., booking widget submissions, team invites).
 
-**Job confirmations + reminders** â€” Job detail now has `Send to Client` and `Send to Cleaner` actions. These currently create internal notification structure and queue reminder rows through `sendJobConfirmation()` in `lib/supabase/queries/jobs.ts`; actual Twilio/email delivery is still pending. Reminder behavior is controlled from Settings â†’ Alerts using `job_reminders_enabled`, `job_reminder_24h`, and `job_reminder_1h` on `businesses`. Job send status is tracked on `jobs.client_confirmation_sent_at` and `jobs.cleaner_confirmation_sent_at`.
+**Job confirmations + reminders** â€” Job detail now has `Send to Client` and `Send to Cleaner` actions. These currently create internal notification structure and queue reminder rows through `sendJobConfirmation()` in `lib/supabase/queries/jobs.ts`; SMS delivery uses Quo API via `lib/quo.ts`. Reminder behavior is controlled from Settings â†’ Alerts using `job_reminders_enabled`, `job_reminder_24h`, and `job_reminder_1h` on `businesses`. Job send status is tracked on `jobs.client_confirmation_sent_at` and `jobs.cleaner_confirmation_sent_at`.
 
 ---
 
@@ -226,6 +226,11 @@ V1-master/
 > Update this section at the end of every session. This is what the next session reads first.
 
 **Fixed this session (2026-05-02):**
+- Settings: added **Integrations** tab with setup/status cards for Gmail, Stripe, Quo, Google Calendar, and Resend fallback (`app/(dashboard)/settings/page.tsx`, `components/settings/IntegrationsTab.tsx`)
+- SMS: replaced Twilio integration with Quo API credentials (`QUO_API_KEY`, `QUO_PHONE_NUMBER_ID`, optional `QUO_USER_ID`) and wired appointment reminder SMS through `lib/quo.ts`.
+- Email sending: added Gmail API sender that uses Google OAuth env vars when fully configured, with Resend preserved as fallback (`lib/gmail.ts`, `lib/email.ts`, invoice/quote send routes). Required Gmail env names: `GOOGLE_CLIENT_ID` or `GMAIL_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` or `GMAIL_CLIENT_SECRET`, `GOOGLE_REFRESH_TOKEN` or `GMAIL_REFRESH_TOKEN`, and `GMAIL_FROM_EMAIL`
+- Clients: client table three-dot menu has **Edit** and **Email** actions; Email opens a send dialog with subject/message/attachments and posts to `/api/clients/send-email`, which uses Gmail first and Resend fallback through `sendTransactionalEmail()`.
+- Gmail verification: `.env.local` includes Google OAuth/Gmail sender keys and Google token refresh returned `GMAIL_OAUTH_OK` on 2026-05-02.
 - Settings → Alerts tab: added **Email** section at top with reply-to address input (saves to `businesses.email`) and **Alerts** sub-header above notification toggles (`components/settings/NotificationsTab.tsx`)
 - `settings/page.tsx`: `NotificationValues` now includes `email`; `updateNotifications` server action explicitly saves it to `businesses` table alongside the toggle fields
 - `app/api/invoices/send/route.ts` + `app/api/quotes/send/route.ts`: both now fetch `email` alongside `name` from the business record and pass it as `reply_to` on every Resend `emails.send()` call — client replies land in the business's inbox instead of noreply

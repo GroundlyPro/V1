@@ -6,9 +6,13 @@ import { createClient } from "@/lib/supabase/server";
 import {
   convertRequestToQuote,
   getRequest,
+  getRequestFormOptions,
+  updateRequest,
   updateRequestStatus,
+  type UpdateRequestInput,
 } from "@/lib/supabase/queries/requests";
 import { ConvertToQuoteModal } from "@/components/requests/ConvertToQuoteModal";
+import { EditRequestModal } from "@/components/requests/EditRequestModal";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -64,6 +68,7 @@ export default async function RequestDetailPage({ params }: RequestDetailPagePro
   const request = await getRequest(id, profile.business_id);
   if (!request) notFound();
 
+  const { teamMembers } = await getRequestFormOptions(profile.business_id);
   const isClosed = request.status === "converted" || request.status === "declined";
 
   async function markInReviewAction() {
@@ -99,6 +104,19 @@ export default async function RequestDetailPage({ params }: RequestDetailPagePro
     redirect(`/quotes/${quoteId}`);
   }
 
+  async function updateAction(values: UpdateRequestInput) {
+    "use server";
+
+    try {
+      await updateRequest(id, values);
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : "Unable to update request." };
+    }
+
+    revalidatePath("/requests");
+    revalidatePath(`/requests/${id}`);
+  }
+
   return (
     <div className="max-w-5xl space-y-6">
       <Link href="/requests" className={buttonVariants({ variant: "ghost" })}>
@@ -122,6 +140,7 @@ export default async function RequestDetailPage({ params }: RequestDetailPagePro
         </div>
 
         <div className="flex flex-wrap gap-2">
+          <EditRequestModal request={request} teamMembers={teamMembers} action={updateAction} />
           {request.status === "new" ? (
             <form action={markInReviewAction}>
               <button type="submit" className={buttonVariants({ variant: "outline" })}>

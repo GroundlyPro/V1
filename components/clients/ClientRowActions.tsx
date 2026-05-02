@@ -1,8 +1,10 @@
 "use client";
 
 import { startTransition, useState } from "react";
-import { Mail, MessageSquare, MoreHorizontal, Trash2 } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Edit, Mail, MessageSquare, MoreHorizontal, Trash2 } from "lucide-react";
 import { deleteClientAction } from "@/app/(dashboard)/clients/actions";
+import { ClientEmailDialog } from "@/components/clients/ClientEmailDialog";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -25,12 +27,9 @@ export function ClientRowActions({
   email,
   phone,
 }: ClientRowActionsProps) {
+  const router = useRouter();
   const [isDeleting, setIsDeleting] = useState(false);
-
-  function handleEmail() {
-    if (!email) return;
-    window.location.href = `mailto:${email}`;
-  }
+  const [emailOpen, setEmailOpen] = useState(false);
 
   function handleSms() {
     if (!phone) return;
@@ -56,35 +55,49 @@ export function ClientRowActions({
   }
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger
-        render={
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            className="opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 data-[popup-open]:opacity-100"
-            aria-label={`Open actions for ${clientName}`}
-          >
-            <MoreHorizontal className="size-4" />
-          </Button>
-        }
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          render={
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              className="opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 data-[popup-open]:opacity-100"
+              aria-label={`Open actions for ${clientName}`}
+            >
+              <MoreHorizontal className="size-4" />
+            </Button>
+          }
+        />
+        <DropdownMenuContent align="end" className="w-44">
+          <DropdownMenuItem onClick={() => router.push(`/clients/${clientId}#edit`)}>
+            <Edit className="size-4" />
+            Edit
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onClick={() => setEmailOpen(true)} disabled={!email}>
+            <Mail className="size-4" />
+            {email ? "Email" : "No email"}
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={handleSms} disabled={!phone}>
+            <MessageSquare className="size-4" />
+            {phone ? "SMS" : "No phone"}
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onClick={handleDelete} variant="destructive" disabled={isDeleting}>
+            <Trash2 className="size-4" />
+            {isDeleting ? "Deleting..." : "Delete"}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <ClientEmailDialog
+        open={emailOpen}
+        onOpenChange={setEmailOpen}
+        clientId={clientId}
+        clientName={clientName}
+        email={email}
       />
-      <DropdownMenuContent align="end" className="w-44">
-        <DropdownMenuItem onClick={handleEmail} disabled={!email}>
-          <Mail className="size-4" />
-          {email ? "Email" : "No email"}
-        </DropdownMenuItem>
-        <DropdownMenuItem onClick={handleSms} disabled={!phone}>
-          <MessageSquare className="size-4" />
-          {phone ? "SMS" : "No phone"}
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={handleDelete} variant="destructive" disabled={isDeleting}>
-          <Trash2 className="size-4" />
-          {isDeleting ? "Deleting..." : "Delete"}
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+    </>
   );
 }

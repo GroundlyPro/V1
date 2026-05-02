@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { getTwilio, getTwilioFrom } from "@/lib/twilio";
+import { sendQuoMessage } from "@/lib/quo";
+import type { StoredIntegrationsConfig } from "@/lib/integrations";
 
 export async function POST(request: Request) {
   const supabase = await createClient();
@@ -45,10 +46,12 @@ export async function POST(request: Request) {
 
   const { data: business } = await supabase
     .from("businesses")
-    .select("name")
+    .select("*")
     .eq("id", profile.business_id)
     .single();
 
+  const integrations = ((business as { integrations_config?: unknown } | null)?.integrations_config ??
+    {}) as StoredIntegrationsConfig;
   const businessName = business?.name ?? "Your service provider";
 
   const dateStr = v.scheduled_date
@@ -63,11 +66,16 @@ export async function POST(request: Request) {
   const messageBody = `Hi ${clientFirstName}, this is ${businessName}. Your visit is scheduled for ${dateStr}${timeStr}. Reply STOP to opt out.`;
 
   try {
-    const twilio = getTwilio();
-    await twilio.messages.create({
-      body: messageBody,
-      from: getTwilioFrom(),
+    await sendQuoMessage({
       to: clientPhone,
+      content: messageBody,
+      config: integrations.quo
+        ? {
+            apiKey: integrations.quo.api_key,
+            phoneNumberId: integrations.quo.phone_number_id,
+            userId: integrations.quo.user_id,
+          }
+        : undefined,
     });
   } catch (err) {
     return NextResponse.json(

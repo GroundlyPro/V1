@@ -21,6 +21,7 @@ type TeamMemberOption = {
 
 const statusFilterLabels: Record<RequestFilter, string> = {
   all: "Status",
+  open: "Open",
   new: "New",
   in_review: "In review",
   converted: "Converted",
@@ -32,6 +33,7 @@ const dateRangeLabels: Record<RequestDateFilter, string> = {
   today: "Today",
   this_week: "This week",
   this_month: "This month",
+  past_30_days: "Past 30 days",
   custom: "Custom range",
 };
 
@@ -109,19 +111,19 @@ export function RequestsFilters({
   return (
     <div className="flex flex-col gap-3 lg:flex-row">
       <form
-        className="flex flex-1 flex-col gap-3 xl:flex-row"
+        className="flex flex-1 flex-col gap-3 sm:flex-row"
         onSubmit={(event) => {
           event.preventDefault();
           pushFilters();
         }}
       >
-        <div className="relative xl:flex-1">
-          <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+        <div className="relative flex-1">
+          <Search className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
           <Input
             value={q}
             onChange={(event) => setQ(event.target.value)}
             placeholder="Search client, email, phone, address, or service"
-            className="pl-9"
+            className="pl-8"
           />
         </div>
 
@@ -134,7 +136,7 @@ export function RequestsFilters({
           }}
           disabled={isPending}
         >
-          <SelectTrigger className="w-full xl:w-[260px]">
+          <SelectTrigger className="w-full sm:w-52">
             <span>{selectedAssigneeLabel}</span>
           </SelectTrigger>
           <SelectContent>
@@ -157,11 +159,12 @@ export function RequestsFilters({
           }}
           disabled={isPending}
         >
-          <SelectTrigger className="w-full xl:w-[240px]">
+          <SelectTrigger className="w-full sm:w-48">
             <span>{statusFilterLabels[status]}</span>
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All statuses</SelectItem>
+            <SelectItem value="open">Open</SelectItem>
             <SelectItem value="new">New</SelectItem>
             <SelectItem value="in_review">In review</SelectItem>
             <SelectItem value="converted">Converted</SelectItem>
@@ -189,7 +192,7 @@ export function RequestsFilters({
             }}
             disabled={isPending}
           >
-            <SelectTrigger className="w-full xl:w-[220px]">
+            <SelectTrigger className="w-full sm:w-44">
               <span>{dateRangeLabels[createdRange]}</span>
             </SelectTrigger>
             <SelectContent>
@@ -197,6 +200,7 @@ export function RequestsFilters({
               <SelectItem value="today">Today</SelectItem>
               <SelectItem value="this_week">This week</SelectItem>
               <SelectItem value="this_month">This month</SelectItem>
+              <SelectItem value="past_30_days">Past 30 days</SelectItem>
               <SelectItem value="custom">Custom range</SelectItem>
             </SelectContent>
           </Select>
@@ -217,7 +221,7 @@ export function RequestsFilters({
                     createdTo: nextTo,
                   });
                 }}
-                className="w-full xl:w-[180px]"
+                className="w-full sm:w-40"
               />
               <Input
                 type="date"
@@ -228,7 +232,7 @@ export function RequestsFilters({
                   setCreatedTo(nextValue);
                   pushFilters({ createdRange: "custom", createdTo: nextValue });
                 }}
-                className="w-full xl:w-[180px]"
+                className="w-full sm:w-40"
               />
             </>
           ) : null}
