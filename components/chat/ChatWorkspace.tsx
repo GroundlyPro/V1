@@ -6,6 +6,7 @@ import {
   useEffect,
   useEffectEvent,
   useState,
+  useSyncExternalStore,
   useTransition,
 } from "react";
 import { Mail, MessageSquareText, Phone, Search, Send, Users } from "lucide-react";
@@ -212,7 +213,11 @@ function ContactQuickActions({
 }
 
 export function ChatWorkspace({ initialData }: { initialData: ChatWorkspaceData }) {
-  const [isHydrated, setIsHydrated] = useState(false);
+  const isHydrated = useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false
+  );
   const [conversations, setConversations] = useState(() =>
     sortConversations(
       initialData.conversations.map((conversation) =>
@@ -264,6 +269,16 @@ export function ChatWorkspace({ initialData }: { initialData: ChatWorkspaceData 
     (selectedConversationId
       ? conversations.find((conversation) => conversation.id === selectedConversationId) ?? null
       : null);
+  const canSendSelectedConversationEmail = Boolean(
+    selectedConversation?.kind === "client" &&
+      selectedConversation.client?.email &&
+      initialData.emailConnected
+  );
+  const canSendSelectedConversationSms = Boolean(
+    selectedConversation?.kind === "client" &&
+      selectedConversation.client?.phone &&
+      initialData.quoConnected
+  );
 
   const clientConversationByClientId = new Map(
     conversations
@@ -581,10 +596,6 @@ export function ChatWorkspace({ initialData }: { initialData: ChatWorkspaceData 
       void fetch(`/api/chat/conversations/${conversationId}/read`, { method: "POST" });
     }
   });
-
-  useEffect(() => {
-    setIsHydrated(true);
-  }, []);
 
   useEffect(() => {
     const supabase = createClient();
@@ -1010,28 +1021,36 @@ export function ChatWorkspace({ initialData }: { initialData: ChatWorkspaceData 
                   </div>
 
                   <div className="flex gap-2">
-                    {selectedConversation.client?.email && initialData.emailConnected ? (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setDeliveryType("email")}
-                      >
-                        <Mail className="size-4" />
-                        Email
-                      </Button>
-                    ) : null}
-                    {selectedConversation.client?.phone && initialData.quoConnected ? (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setDeliveryType("sms")}
-                      >
-                        <MessageSquareText className="size-4" />
-                        SMS
-                      </Button>
-                    ) : null}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setDeliveryType("email")}
+                      disabled={!canSendSelectedConversationEmail}
+                      title={
+                        canSendSelectedConversationEmail
+                          ? "Send via email"
+                          : "Email is not available for this client"
+                      }
+                    >
+                      <Mail className="size-4" />
+                      Email
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setDeliveryType("sms")}
+                      disabled={!canSendSelectedConversationSms}
+                      title={
+                        canSendSelectedConversationSms
+                          ? "Send via SMS"
+                          : "SMS is not available for this client"
+                      }
+                    >
+                      <MessageSquareText className="size-4" />
+                      SMS
+                    </Button>
                     {selectedConversation.client?.phone ? (
                       <Button
                         type="button"
@@ -1097,34 +1116,44 @@ export function ChatWorkspace({ initialData }: { initialData: ChatWorkspaceData 
                 <form onSubmit={handleSend} className="border-t border-[#edf3f8] p-5">
                   {selectedConversation.kind === "client" ? (
                     <div className="mb-3 flex flex-wrap gap-2">
-                      {selectedConversation.client?.email && initialData.emailConnected ? (
-                        <button
-                          type="button"
-                          onClick={() => setDeliveryType("email")}
-                          className={cn(
-                            "rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
-                            deliveryType === "email"
-                              ? "bg-[#007bb8] text-white"
-                              : "bg-[#f3f7fa] text-[#4a6070]"
-                          )}
-                        >
-                          Email
-                        </button>
-                      ) : null}
-                      {selectedConversation.client?.phone && initialData.quoConnected ? (
-                        <button
-                          type="button"
-                          onClick={() => setDeliveryType("sms")}
-                          className={cn(
-                            "rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
-                            deliveryType === "sms"
-                              ? "bg-[#007bb8] text-white"
-                              : "bg-[#f3f7fa] text-[#4a6070]"
-                          )}
-                        >
-                          SMS
-                        </button>
-                      ) : null}
+                      <button
+                        type="button"
+                        onClick={() => setDeliveryType("email")}
+                        disabled={!canSendSelectedConversationEmail}
+                        title={
+                          canSendSelectedConversationEmail
+                            ? "Send via email"
+                            : "Email is not available for this client"
+                        }
+                        className={cn(
+                          "rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
+                          deliveryType === "email"
+                            ? "bg-[#007bb8] text-white"
+                            : "bg-[#f3f7fa] text-[#4a6070]",
+                          !canSendSelectedConversationEmail && "cursor-not-allowed opacity-50"
+                        )}
+                      >
+                        Email
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDeliveryType("sms")}
+                        disabled={!canSendSelectedConversationSms}
+                        title={
+                          canSendSelectedConversationSms
+                            ? "Send via SMS"
+                            : "SMS is not available for this client"
+                        }
+                        className={cn(
+                          "rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
+                          deliveryType === "sms"
+                            ? "bg-[#007bb8] text-white"
+                            : "bg-[#f3f7fa] text-[#4a6070]",
+                          !canSendSelectedConversationSms && "cursor-not-allowed opacity-50"
+                        )}
+                      >
+                        SMS
+                      </button>
                       <button
                         type="button"
                         onClick={() => setDeliveryType("note")}
