@@ -288,6 +288,13 @@ supabase/migrations/
 - Quo inbound webhook setup: chat inbox webhook registration now falls back to `APP_URL`, `VERCEL_PROJECT_PRODUCTION_URL`, or `VERCEL_URL` when `NEXT_PUBLIC_APP_URL` is blank, so deployed environments can still auto-register `/api/quo/webhooks/messages` (`lib/supabase/queries/chat.ts`)
 - Quo inbound requirement: receiving replies inside `/chat` depends on the public webhook endpoint being reachable by Quo/OpenPhone; local-only dev URLs still will not receive inbound messages until exposed publicly
 
+**Fixed this session (2026-05-04):**
+- Chat inbound SMS webhook: Quo/OpenPhone was not receiving replies because no `message.received` webhook existed for the live sending number `PNc2Rq8o8a`; created webhook `WH12739c58fb054eeabce933e65800d968` pointing to `https://v1-ochre-eight.vercel.app/api/quo/webhooks/messages`
+- Chat webhook parsing hardening: inbound Quo route now tolerates more payload shapes, logs invalid payloads, and hydrates missing fields with `GET /v1/messages/{id}` before rejecting (`app/api/quo/webhooks/messages/route.ts`, `lib/quo.ts`)
+- Chat inbound client fallback: inbound SMS no longer hard-fails when the sender phone is not already in Groundly; the backend now auto-creates a placeholder lead client and conversation so the message can still land in `/chat` (`lib/supabase/queries/chat.ts`)
+- Quo config note: saved `QUO_USER_ID` was invalid for webhook creation because it used a `CN...` conversation id instead of a real `US...` user id; webhook creation should omit `userId` unless a valid Quo user id is available
+- Live app URL: current deployed project URL is `https://v1-ochre-eight.vercel.app` and chat lives at `https://v1-ochre-eight.vercel.app/chat`
+
 **Fixed this session (2026-05-01):**
 - Schedule: added prev/next month buttons (`ChevronsLeft/Right`) + date jump input to `WeekCalendar.tsx`
 - Requests: added "New Request" button on `requests/page.tsx` → `/requests/new`
@@ -315,6 +322,7 @@ supabase/migrations/
 - Hosted DB drift still exists outside Chat: remote project is missing `businesses.integrations_config`, so any feature that hard-selects that column on hosted data will fail until migration `020_integrations_config.sql` is also applied remotely
 - Chat should get proper RLS policies before scaling multi-tenant usage; current server-side chat path uses service-role admin client and scopes by authenticated user `business_id`
 - Apply hosted migration `023_chat_sms_delivery.sql` before expecting live chat SMS sends to work on the remote database
+- Set `APP_URL` or `NEXT_PUBLIC_APP_URL` on the deployed environment to `https://v1-ochre-eight.vercel.app` so future webhook auto-registration does not depend on manual Quo setup
 - `lib/supabase/types.ts` needs regeneration after any new migration: run `npx supabase gen types typescript --project-id pnnczpsvvuwgzpkqfizv > lib/supabase/types.ts` (requires `supabase login` first)
 - Parent folder `C:\Users\Admin\Music\Growndly\package-lock.json` causes Next.js workspace-root warning on build — delete it or set `turbopack.root` in `next.config.ts`
 

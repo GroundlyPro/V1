@@ -68,6 +68,22 @@ type QuoPhoneNumberResponse = {
   };
 };
 
+type QuoMessageResponse = {
+  data?: {
+    id?: string;
+    to?: string[] | null;
+    from?: string | null;
+    text?: string | null;
+    phoneNumberId?: string | null;
+    direction?: "incoming" | "outgoing" | null;
+    userId?: string | null;
+    status?: string | null;
+    createdAt?: string | null;
+    updatedAt?: string | null;
+    contactIds?: string[] | null;
+  };
+};
+
 function getQuoConfig(config?: QuoConfig) {
   return {
     apiKey: config?.apiKey ?? process.env.QUO_API_KEY,
@@ -141,6 +157,32 @@ async function getQuoPhoneNumberDetails(apiKey: string, phoneNumberId: string) {
 export function isQuoConfigured(config?: QuoConfig) {
   const quo = getQuoConfig(config);
   return Boolean(quo.apiKey && quo.phoneNumberId);
+}
+
+export async function getQuoMessageById(id: string, config?: QuoConfig) {
+  const quo = getQuoConfig(config);
+
+  if (!quo.apiKey) {
+    throw new Error("QUO_API_KEY is required.");
+  }
+
+  const response = await fetch(`https://api.openphone.com/v1/messages/${id}`, {
+    method: "GET",
+    headers: {
+      Authorization: quo.apiKey,
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(await parseError(response));
+  }
+
+  const body = (await response.json().catch(() => null)) as QuoMessageResponse | null;
+  if (!body?.data?.id) {
+    throw new Error("Quo message lookup did not return a message record.");
+  }
+
+  return body.data;
 }
 
 export async function sendQuoMessage({ to, content, config }: SendQuoMessageInput) {

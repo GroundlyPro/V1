@@ -593,6 +593,53 @@ async function findClientByInboundPhone(
   );
 }
 
+async function createPlaceholderClientForInboundPhone(
+  supabase: AdminSupabase,
+  businessId: string,
+  fromPhone: string
+) {
+  const normalizedPhone = normalizePhoneNumber(fromPhone);
+  if (!normalizedPhone) return null;
+
+  const phoneDigits = normalizedPhone.replace(/\D/g, "");
+  const lastFour = phoneDigits.slice(-4);
+  const lastName = lastFour ? `SMS ${lastFour}` : "SMS Lead";
+
+  const { data: client, error } = await supabase
+    .from("clients")
+    .insert({
+      business_id: businessId,
+      first_name: "Inbound",
+      last_name: lastName,
+      phone: normalizedPhone,
+      notes: "Auto-created from inbound Quo/OpenPhone SMS webhook.",
+      status: "lead",
+    })
+    .select("id, first_name, last_name, company_name, email, phone")
+    .single();
+
+  if (error) throw error;
+  return client;
+}
+
+async function ensureClientForInboundPhone(
+  supabase: AdminSupabase,
+  businessId: string,
+  fromPhone: string
+) {
+  const existingClient = await findClientByInboundPhone(supabase, businessId, fromPhone);
+  if (existingClient) {
+    return { client: existingClient, created: false as const };
+  }
+
+  const createdClient = await createPlaceholderClientForInboundPhone(supabase, businessId, fromPhone);
+  if (!createdClient) {
+    throw new Error("Inbound Quo phone number could not be normalized.");
+  }
+
+  return { client: createdClient, created: true as const };
+}
+
 async function ensureClientConversationForInboundMessage(input: {
   supabase: AdminSupabase;
   businessId: string;
@@ -680,10 +727,11 @@ export async function processQuoIncomingMessage(payload: QuoIncomingMessagePaylo
     throw new Error("No Groundly business is connected to this Quo phone number.");
   }
 
-  const client = await findClientByInboundPhone(supabase, businessId, payload.from);
-  if (!client) {
-    throw new Error("No Groundly client matched the inbound Quo phone number.");
-  }
+  const { client, created: createdClient } = await ensureClientForInboundPhone(
+    supabase,
+    businessId,
+    payload.from
+  );
 
   const clientName = displayClientName(client);
   const conversationId = await ensureClientConversationForInboundMessage({
@@ -728,7 +776,12 @@ export async function processQuoIncomingMessage(payload: QuoIncomingMessagePaylo
 
   if (insertError) throw insertError;
 
-  return { ignored: false as const, duplicate: false as const, conversationId };
+  return {
+    ignored: false as const,
+    duplicate: false as const,
+    conversationId,
+    createdClient,
+  };
 }
 
 export async function getConversationThread(conversationId: string): Promise<ChatThread> {
