@@ -269,15 +269,11 @@ export function ChatWorkspace({ initialData }: { initialData: ChatWorkspaceData 
     (selectedConversationId
       ? conversations.find((conversation) => conversation.id === selectedConversationId) ?? null
       : null);
-  const canSendSelectedConversationEmail = Boolean(
-    selectedConversation?.kind === "client" &&
-      selectedConversation.client?.email &&
-      initialData.emailConnected
+  const selectedConversationHasEmail = Boolean(
+    selectedConversation?.kind === "client" && selectedConversation.client?.email
   );
-  const canSendSelectedConversationSms = Boolean(
-    selectedConversation?.kind === "client" &&
-      selectedConversation.client?.phone &&
-      initialData.quoConnected
+  const selectedConversationHasPhone = Boolean(
+    selectedConversation?.kind === "client" && selectedConversation.client?.phone
   );
 
   const clientConversationByClientId = new Map(
@@ -1026,12 +1022,8 @@ export function ChatWorkspace({ initialData }: { initialData: ChatWorkspaceData 
                       variant="outline"
                       size="sm"
                       onClick={() => setDeliveryType("email")}
-                      disabled={!canSendSelectedConversationEmail}
-                      title={
-                        canSendSelectedConversationEmail
-                          ? "Send via email"
-                          : "Email is not available for this client"
-                      }
+                      disabled={!selectedConversationHasEmail}
+                      title={selectedConversationHasEmail ? "Send via email" : "Email is not available"}
                     >
                       <Mail className="size-4" />
                       Email
@@ -1041,12 +1033,8 @@ export function ChatWorkspace({ initialData }: { initialData: ChatWorkspaceData 
                       variant="outline"
                       size="sm"
                       onClick={() => setDeliveryType("sms")}
-                      disabled={!canSendSelectedConversationSms}
-                      title={
-                        canSendSelectedConversationSms
-                          ? "Send via SMS"
-                          : "SMS is not available for this client"
-                      }
+                      disabled={!selectedConversationHasPhone}
+                      title={selectedConversationHasPhone ? "Send via SMS" : "SMS is not available"}
                     >
                       <MessageSquareText className="size-4" />
                       SMS
@@ -1119,18 +1107,14 @@ export function ChatWorkspace({ initialData }: { initialData: ChatWorkspaceData 
                       <button
                         type="button"
                         onClick={() => setDeliveryType("email")}
-                        disabled={!canSendSelectedConversationEmail}
-                        title={
-                          canSendSelectedConversationEmail
-                            ? "Send via email"
-                            : "Email is not available for this client"
-                        }
+                        disabled={!selectedConversationHasEmail}
+                        title={selectedConversationHasEmail ? "Send via email" : "Email is not available"}
                         className={cn(
                           "rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
                           deliveryType === "email"
                             ? "bg-[#007bb8] text-white"
                             : "bg-[#f3f7fa] text-[#4a6070]",
-                          !canSendSelectedConversationEmail && "cursor-not-allowed opacity-50"
+                          !selectedConversationHasEmail && "cursor-not-allowed opacity-50"
                         )}
                       >
                         Email
@@ -1138,18 +1122,14 @@ export function ChatWorkspace({ initialData }: { initialData: ChatWorkspaceData 
                       <button
                         type="button"
                         onClick={() => setDeliveryType("sms")}
-                        disabled={!canSendSelectedConversationSms}
-                        title={
-                          canSendSelectedConversationSms
-                            ? "Send via SMS"
-                            : "SMS is not available for this client"
-                        }
+                        disabled={!selectedConversationHasPhone}
+                        title={selectedConversationHasPhone ? "Send via SMS" : "SMS is not available"}
                         className={cn(
                           "rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
                           deliveryType === "sms"
                             ? "bg-[#007bb8] text-white"
                             : "bg-[#f3f7fa] text-[#4a6070]",
-                          !canSendSelectedConversationSms && "cursor-not-allowed opacity-50"
+                          !selectedConversationHasPhone && "cursor-not-allowed opacity-50"
                         )}
                       >
                         SMS
@@ -1218,7 +1198,7 @@ export function ChatWorkspace({ initialData }: { initialData: ChatWorkspaceData 
                       <MessageSquareText className="size-4" />
                       {pending ? "Starting..." : "Start chat"}
                     </Button>
-                    {selectedClient.email && initialData.emailConnected ? (
+                    {selectedClient.email ? (
                       <Button
                         type="button"
                         variant="outline"
@@ -1228,7 +1208,7 @@ export function ChatWorkspace({ initialData }: { initialData: ChatWorkspaceData 
                         Email
                       </Button>
                     ) : null}
-                    {selectedClient.phone && initialData.quoConnected ? (
+                    {selectedClient.phone ? (
                       <Button
                         type="button"
                         variant="outline"
